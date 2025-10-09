@@ -1,0 +1,3 @@
+[submodule "liboqs-php"]
+	path = liboqs-php
+	url = https://github.com/Muzosh/liboqs-php.git

@@ -1,0 +1,31 @@
+# Normalización de fin de línea
+* text=auto
+
+# Scripts de shell siempre con LF
+*.sh text eol=lf
+
+# Archivos de Windows siempre con CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Archivos que deben tener LF incluso en Windows
+*.php text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.md text eol=lf
+
+# Archivos binarios
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.key binary
+*.pem binary
+*.ppk binary
+*.so binary
+*.o binary
+*.a binary
+

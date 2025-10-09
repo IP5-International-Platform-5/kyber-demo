@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Demo Cliente-Servidor Kyber</title>
+    <script>
+        // Definimos el puerto del servidor API
+        window.SERVER_PORT = '8000';
+    </script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            box-sizing: border-box;
+        }
+        h2 {
+            font-size: 130%;
+        }
+        .container {
+            border: 1px solid #ddd;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+            display: flex;
+            gap: 20px;
+            width: 100%;
+            max-width: 1000px;
+            box-sizing: border-box;
+        }
+        .left-column, .right-column {
+            flex: 1;
+            min-width: 0;
+            padding: 15px;
+            border: 2px solid #eee;
+            border-radius: 4px;
+            background-color: #fafafa;
+        }
+        .center-column {
+            flex: 1;
+            min-width: 0;
+            padding: 15px;
+            border: 2px solid #eee;
+            border-radius: 4px;
+            background-color: #fafafa;
+            max-width:450px;
+            margin: 0 auto;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        textarea {
+            width: 96%;
+            min-height: 100px;
+            margin-bottom: 10px;
+            padding: 10px;
+            font-family: monospace;
+        }
+        .result {
+            overflow-x: auto;
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+            font-family: monospace;
+        }
+        .error {
+            color: red;
+        }
+        .success {
+            color: green;
+        }
+    </style>
+</head>
+<body>
+    <h1>Demo Cliente-Servidor Kyber</h1>
+
+    <p>Panel de ejemplos de uso de los endpoints de servidor.</p>
+
+    <!-- Container 1 -->
+    <div class="container">
+        <div class="center-column">
+            <h2>1. Obtener clave pública del servidor</h2>
+            <p>El cliente obtiene y almacena la clave pública del servidor.</p>
+            <button id="getPublicKeyBtn">Obtener Clave Pública</button>
+            <div class="result" id="publicKeyResult"></div>
+        </div>
+    </div>
+
+    <!-- Container 2 -->
+    <div class="container">
+        <div class="left-column">
+            <h2>2. Generar una clave compartida en cliente</h2>
+            <p>El cliente genera y almacena una clave compartida y la encapsula con la clave pública del servidor.</p>
+            <button id="encapsulateBtn" disabled>Generar clave compartida</button>
+            <div class="result" id="encapsulateResult"></div>
+        </div>
+        <div class="right-column">
+            <h2>3. Enviar la clave compartida al servidor</h2>
+            <p>El cliente envía al servidor la clave compartida cifrada, para desencapsularla con su clave privada y almacenarla.</p>
+            <button id="sendCiphertextBtn" disabled>Enviar clave compartida al servidor</button>
+            <div class="result" id="sendSharedSecretResult"></div>
+        </div>
+    </div>
+
+    <!-- Container 4 -->
+    <div class="container">
+        <div class="left-column">
+            <h2>4. Cifrar un mensaje en cliente</h2>
+            <p>Introduzca el texto a cifrar usando la clave compartida:</p>
+            <textarea id="messageInput" placeholder="Escribe un mensaje aquí...">Este es un mensaje privado</textarea>
+            <button id="encryptAndSendBtn">Cifrar en Cliente</button>
+            <div class="result" id="encryptResult"></div>
+        </div>
+        <div class="right-column">
+            <h2>5. Descifrar el mensaje en servidor</h2>
+            <p>El servidor descifra el mensaje enviado usando la clave compartida:</p>
+            <button id="decryptBtn">Descifrar en Servidor</button>
+            <div class="inputs">
+                <input type="text" id="encryptedData" placeholder="encryptedData"><br/>
+                <input type="text" id="encryptionIv" placeholder="encryptionIv"><br/>
+                <input type="text" id="encryptionTag" placeholder="encryptionTag">
+            </div>
+            <div class="result" id="decryptResult"></div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script type="module">
+        // Esperar a que el documento esté completamente cargado
+        document.addEventListener('DOMContentLoaded', () => {
+            // Variables globales para el script
+            let serverPublicKey = null;
+            let sharedSecret = null;
+            let ciphertext = null;
+
+            // Obtener la URL base de la API
+            const getApiBaseUrl = () => {
+                // Usar ruta relativa para la API
+                return '';
+            };
+
+            // Función para construir URLs de la API
+            const getApiUrl = (endpoint) => {
+                // Eliminar la extensión .php si existe
+                endpoint = endpoint.replace('.php', '');
+                // Usar ruta relativa para la API
+                return `/${endpoint}`;
+            };
+
+            const getClientApiUrl = (endpoint) => {
+                // Eliminar la extensión .php si existe
+                endpoint = endpoint.replace('.php', '');
+                // Usar ruta relativa para la API
+                return `/api_client/${endpoint}`;
+            };
+
+            const getServerApiUrl = (endpoint) => {
+                // Eliminar la extensión .php si existe
+                endpoint = endpoint.replace('.php', '');
+                // Usar ruta relativa para la API
+                return `/api_server/${endpoint}`;
+            };
+
+            // Configuración para todas las peticiones fetch
+            const getFetchOptions = (options = {}) => {
+                // Asegurarnos que tenemos headers
+                if (!options.headers) {
+                    options.headers = {};
+                }
+
+                // Si hay credenciales, asegurarse de enviar las cookies
+                if (!options.credentials) {
+                    options.credentials = 'include';
+                }
+
+                return options;
+            };
+
+            // Función para convertir hex a arrayBuffer
+            function hexToArrayBuffer(hexString) {
+                return new Uint8Array(
+                    hexString.match(/[\da-f]{2}/gi).map(h => parseInt(h, 16))
+                ).buffer;
+            }
+
+            // Función para convertir arrayBuffer a hex
+            function arrayBufferToHex(buffer) {
+                return Array.prototype.map.call(
+                    new Uint8Array(buffer),
+                    x => ('00' + x.toString(16)).slice(-2)
+                ).join('');
+            }
+
+            // Manejar obtención de clave pública
+            document.getElementById('getPublicKeyBtn').addEventListener('click', async () => {
+                const resultElement = document.getElementById('publicKeyResult');
+
+                try {
+                    const response = await fetch(getServerApiUrl('get_public_key'), getFetchOptions());
+                    const data = await response.json();
+
+                    console.log('Respuesta get_public_key:', data);
+
+                    // Si hay error, mostrarlo
+                    if (data.error) {
+                        resultElement.innerHTML = `Error: ${data.error}`;
+                        resultElement.classList.add('error');
+                    }
+                    // Si hay clave pública, procesarla
+                    else if (data.public_key) {
+                        serverPublicKey = data.public_key;
+
+                        resultElement.innerHTML = `Clave pública del servidor obtenida:<br>
+                        <br>${serverPublicKey}`;
+                        resultElement.classList.add('success');
+                        document.getElementById('encapsulateBtn').disabled = false;
+                    }
+                    // Respuesta inesperada
+                    else {
+                        resultElement.innerHTML = `Error: Respuesta inesperada`;
+                        resultElement.classList.add('error');
+                        console.error('Respuesta inesperada:', data);
+                    }
+                } catch (error) {
+                    resultElement.innerHTML = `Error de conexión: ${error.message}`;
+                    resultElement.classList.add('error');
+                    console.error('Error completo:', error);
+                }
+            });
+
+            // Solicitar al servidor que genere una clave compartida y ciphertext
+            document.getElementById('encapsulateBtn').addEventListener('click', async () => {
+                const resultElement = document.getElementById('encapsulateResult');
+
+                if (!serverPublicKey) {
+                    resultElement.innerHTML = 'Error: Primero debe obtener la clave pública del servidor';
+                    resultElement.classList.add('error');
+                    return;
+                }
+
+                try {
+                    // Llamamos al endpoint usando POST para evitar límites de URL
+                    const response = await fetch(getClientApiUrl('get_shared_secret'), getFetchOptions({
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            public_key: serverPublicKey
+                        })
+                    }));
+                    const data = await response.json();
+
+                    console.log('Respuesta get_shared_secret:', data);
+
+                    // Si hay error, mostrarlo
+                    if (data.error) {
+                        resultElement.innerHTML = `Error: ${data.error}`;
+                        resultElement.classList.add('error');
+                    }
+                    // Si hay ciphertext y shared_secret, procesarlos
+                    else if (data.ciphertext && data.shared_secret) {
+                        ciphertext = data.ciphertext;
+                        sharedSecret = data.shared_secret;
+
+                        resultElement.innerHTML = `Encapsulado en el cliente:<br>
+                        <br>Clave compartida (secreta!): ${sharedSecret}
+                        <br>Ciphertext: ${ciphertext}`;
+                        resultElement.classList.add('success');
+
+                        // Habilitar el siguiente paso
+                        document.getElementById('sendCiphertextBtn').disabled = false;
+                    }
+                    // Respuesta inesperada
+                    else {
+                        resultElement.innerHTML = `Error: Respuesta inesperada`;
+                        resultElement.classList.add('error');
+                        console.error('Respuesta inesperada:', data);
+                    }
+                } catch (error) {
+                    resultElement.innerHTML = `Error de conexión: ${error.message}`;
+                    resultElement.classList.add('error');
+                    console.error('Error completo:', error);
+                }
+            });
+
+            // Enviar el ciphertext al servidor para que extraiga la clave compartida
+            document.getElementById('sendCiphertextBtn').addEventListener('click', async () => {
+                const resultElement = document.getElementById('sendSharedSecretResult');
+
+                if (!ciphertext) {
+                    resultElement.innerHTML = 'Error: No hay ciphertext disponible';
+                    resultElement.classList.add('error');
+                    return;
+                }
+
+                try {
+                    // Enviamos el ciphertext al servidor
+                    const response = await fetch(getServerApiUrl('set_shared_secret'), getFetchOptions({
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            ciphertext: ciphertext
+                        })
+                    }));
+                    const data = await response.json();
+
+                    console.log('Respuesta set_shared_secret:', data);
+
+                    // Si hay error, mostrarlo
+                    if (data.error) {
+                        resultElement.innerHTML = `Error: ${data.error}`;
+                        resultElement.classList.add('error');
+                    }
+                    // Si hay mensaje de éxito, mostrarlo
+                    else if (data.shared_secret) {
+                        resultElement.innerHTML = `Desencapsulado en el servidor:<br>
+                        <br>Clave compartida (secreta!): ${data.shared_secret}`;
+                        resultElement.classList.add('success');
+                        document.getElementById('encryptAndSendBtn').disabled = false;
+                    }
+                    // Respuesta inesperada
+                    else {
+                        resultElement.innerHTML = `Error: Respuesta inesperada`;
+                        resultElement.classList.add('error');
+                        console.error('Respuesta inesperada:', data);
+                    }
+                } catch (error) {
+                    resultElement.innerHTML = `Error de conexión: ${error.message}`;
+                    resultElement.classList.add('error');
+                    console.error('Error completo:', error);
+                }
+            });
+
+            // Cifrar mensaje en el servidor
+            document.getElementById('encryptAndSendBtn').addEventListener('click', async () => {
+                const resultElement = document.getElementById('encryptResult');
+                const message = document.getElementById('messageInput').value;
+
+                if (!message) {
+                    resultElement.innerHTML = 'Por favor, ingrese un mensaje para cifrar.';
+                    resultElement.classList.add('error');
+                    return;
+                }
+
+                try {
+                    // Enviar mensaje al servidor para cifrarlo
+                    const response = await fetch(getClientApiUrl('encrypt_message'), getFetchOptions({
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            message: message
+                        })
+                    }));
+                    const data = await response.json();
+
+                    console.log('Respuesta encrypt_message:', data);
+
+                    // Si hay error, mostrarlo
+                    if (data.error) {
+                        resultElement.innerHTML = `Error: ${data.error}`;
+                        resultElement.classList.add('error');
+                    }
+                    // Si hay datos cifrados, mostrarlos
+                    else if (data.encrypted_data && data.iv) {
+                        // Guardar datos cifrados para el paso de descifrado
+                        document.getElementById('encryptedData').value = data.encrypted_data;
+                        document.getElementById('encryptionIv').value = data.iv;
+                        document.getElementById('encryptionTag').value = data.tag;
+
+                        resultElement.innerHTML = `Mensaje cifrado por el cliente:<br>
+                        <br>Datos cifrados: ${data.encrypted_data}
+                        <br>IV: ${data.iv}`;
+                        resultElement.classList.add('success');
+
+                        // Habilitar el botón de descrifrado
+                        document.getElementById('decryptBtn').disabled = false;
+                    }
+                    // Respuesta inesperada
+                    else {
+                        resultElement.innerHTML = `Error: Respuesta inesperada`;
+                        resultElement.classList.add('error');
+                        console.error('Respuesta inesperada:', data);
+                    }
+                } catch (error) {
+                    resultElement.innerHTML = `Error: ${error.message}`;
+                    resultElement.classList.add('error');
+                    console.error('Error completo:', error);
+                }
+            });
+
+            // Descrifrar mensaje en el servidor
+            document.getElementById('decryptBtn').addEventListener('click', async () => {
+                const resultElement = document.getElementById('decryptResult');
+                const encryptedData = document.getElementById('encryptedData').value;
+                const encryptionIv = document.getElementById('encryptionIv').value;
+                const encryptionTag = document.getElementById('encryptionTag').value;
+
+                if (!encryptedData || !encryptionIv || !encryptionTag) {
+                    resultElement.innerHTML = 'Error: No hay datos descrifrados disponibles.';
+                    resultElement.classList.add('error');
+                    return;
+                }
+
+                try {
+                    // Enviar datos cifrados para descifrarlos
+                    const response = await fetch(getServerApiUrl('decrypt_message'), getFetchOptions({
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            encrypted_data: encryptedData,
+                            iv: encryptionIv,
+                            tag: encryptionTag
+                        })
+                    }));
+                    const data = await response.json();
+
+                    console.log('Respuesta decrypt_message:', data);
+
+                    // Si hay error, mostrarlo
+                    if (data.error) {
+                        resultElement.innerHTML = `Error: ${data.error}`;
+                        resultElement.classList.add('error');
+                    }
+                    // Si hay mensaje cifrado, mostrarlo
+                    else if (data.message) {
+                        resultElement.innerHTML = `Mensaje descifrado por el servidor:<br>
+                        <br>Texto: ${data.message}`;
+                        resultElement.classList.add('success');
+                    }
+                    // Respuesta inesperada
+                    else {
+                        resultElement.innerHTML = `Error: Respuesta inesperada`;
+                        resultElement.classList.add('error');
+                        console.error('Respuesta inesperada:', data);
+                    }
+                } catch (error) {
+                    resultElement.innerHTML = `Error: ${error.message}`;
+                    resultElement.classList.add('error');
+                    console.error('Error completo:', error);
+                }
+            });
+        });
+    </script>
+</body>
+</html>
