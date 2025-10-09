@@ -137,60 +137,42 @@ Nota: La demo simula el proceso de encapsulación de Kyber en el cliente, ya que
 - `npm run build` - Construye la aplicación para producción
 - `npm run preview` - Previsualiza la versión compilada localmente
 
-### Despliegue SFTP
+### Despliegue
 
-El proyecto está configurado para desplegarse mediante SFTP (SSH File Transfer Protocol). Para configurar el despliegue:
+La aplicación se construye en la carpeta `dist/` que puede desplegarse en cualquier servidor web.
 
-1. Crea un archivo `.env` en la raíz del proyecto con la siguiente estructura:
-   ```
-   # Configuración SFTP
-   VITE_SFTP_HOST=ssh.tudominio.com
-   VITE_SFTP_PORT=22
-   VITE_SFTP_USER=tu_usuario_ssh
-   VITE_SFTP_REMOTE_DIR=/ruta/en/el/servidor/
-   # Solo si tu clave privada tiene passphrase:
-   # VITE_SFTP_KEY_PASSPHRASE=tu-passphrase
-   ```
+#### Despliegue básico
 
-2. Asegúrate de que el archivo `.env` esté incluido en `.gitignore` para no exponer tus credenciales.
-
-3. Para una mayor seguridad, configura la autenticación con clave SSH:
+1. Construye la aplicación para producción:
    ```bash
-   # Genera un par de claves SSH si aún no tienes uno
-   ssh-keygen -t rsa -b 4096 -C "tu-email@ejemplo.com"
-
-   # Sube la clave pública (.pub) a tu servidor
-   # Coloca la clave privada en el directorio keys/ del proyecto como aws-kyber.pem
+   npm run build
    ```
 
-4. Si tienes una clave en formato PPK (PuTTY), conviértela a PEM:
+2. Los archivos generados en `dist/` pueden copiarse a tu servidor web.
+
+#### Opciones de despliegue
+
+- **Hosting estático**: GitHub Pages, Netlify, Vercel
+- **Servidor web**: Apache, Nginx
+- **Cloud providers**: AWS S3, Google Cloud Storage
+- **FTP/SFTP**: Cualquier servidor con acceso FTP/SFTP
+
+#### Variables de entorno
+
+Si necesitas configurar variables de entorno:
+
+1. Copia `.env.example` a `.env`:
    ```bash
-   npm run convert-key
+   cp .env.example .env
    ```
 
-5. Comandos de despliegue disponibles:
-   - `npm run build` - Construye la aplicación para producción en la carpeta `dist/`
-   - `npm run deploy` - Construye la aplicación y la despliega automáticamente usando SFTP
+2. Edita las variables según tu configuración
 
-### Solución de problemas en el despliegue
+**Importante**: El archivo `.env` nunca debe subirse al repositorio por seguridad.
 
-#### Problemas comunes con SFTP
-- Asegúrate de que el servicio SSH esté activo en el servidor
-- Verifica que el puerto SSH (generalmente 22) esté abierto y accesible
-- Comprueba los permisos de escritura en la carpeta de destino
-- Si usas autenticación por clave, asegúrate de que la clave pública esté correctamente instalada en el servidor
+#### Despliegue personalizado
 
-#### Errores comunes
-- **Error de permiso denegado**: Asegúrate de que la clave SSH tiene los permisos correctos (600 en sistemas Unix)
-- **Error de host no encontrado**: Verifica la dirección del servidor en el archivo `.env`
-- **Error de autenticación**: Comprueba que el usuario y la clave son correctos
-
-### Consideraciones de seguridad en el despliegue
-- Toda la comunicación SFTP está cifrada
-- Nunca compartas tu archivo `.env` o tus claves privadas
-- Crea un usuario específico para el despliegue con acceso limitado solo a los directorios necesarios
-- Usa autenticación por clave SSH en lugar de contraseña para mayor seguridad
-- Considera usar una passphrase para tu clave privada SSH
+Para configurar un sistema de despliegue automático personalizado (ej. SFTP, FTP, rsync), puedes crear un directorio `custom/` dentro del proyecto con tu configuración específica. Este directorio está ignorado por Git para mantener tu setup personal seguro y separado del repositorio público.
 
 ## Nota importante sobre seguridad
 

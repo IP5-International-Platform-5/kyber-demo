@@ -7,14 +7,9 @@
     "dev": "vite",
     "full": "./run-full.sh",
     "build": "vite build",
-    "preview": "vite preview",
-    "deploy": "vite build && node deploy-sftp.js",
-    "convert-key": "node tools/convert-key.js"
+    "preview": "vite preview"
   },
   "devDependencies": {
-    "dotenv": "^16.4.5",
-    "ssh2-sftp-client": "^12.0.0",
-    "terser": "^5.39.0",
     "vite": "^6.3.1"
   }
 }

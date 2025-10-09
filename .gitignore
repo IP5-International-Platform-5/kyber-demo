@@ -45,3 +45,12 @@ build/
 *.so
 *.o
 *.a
+
+# Configuración personal de despliegue
+deploy-sftp.js
+deploy-*.js
+tools/
+DEPLOY-LOCAL.md
+
+# Directorio de configuración personal (dentro del proyecto)
+custom/
