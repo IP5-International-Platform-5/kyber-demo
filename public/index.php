@@ -1,22 +1,22 @@
 <?php
-# Si se ha llegado aquí desde el router porque no se detectó un endpoint válido
+# Reached here when no valid endpoint was matched
 header('Content-Type: application/json');
 
 echo json_encode([
-    'message' => 'API Kyber Post-Quantum Cryptography',
+    'message' => 'Kyber Post-Quantum Cryptography API',
     'endpoints' => [
-        'api_server/get_public_key' => 'Obtener la clave pública del servidor',
-        'api_client/get_shared_secret' => 'Crear una clave compartida en el cliente',
-        'api_server/set_shared_secret' => 'Enviar la clave compartida al servidor',
-        'api_client/encrypt' => 'Cifrar un mensaje usando la clave compartida (cliente)',
-        'api_server/decrypt' => 'Descifrar un mensaje usando la clave compartida (servidor)'
+        'api_server/get_public_key' => 'Get the server public key',
+        'app/get_shared_secret' => 'Create a shared secret (user app backend)',
+        'api_server/set_shared_secret' => 'Send the Kyber ciphertext to the server',
+        'app/encrypt_message' => 'Encrypt a message with the shared secret (user app backend)',
+        'api_server/decrypt_message' => 'Decrypt a message with the shared secret (server)'
     ],
     'compatible_endpoints' => [
-        'get_public_key' => 'Redirige a api_server/get_public_key',
-        'get_shared_secret' => 'Redirige a api_client/get_shared_secret',
-        'set_shared_secret' => 'Redirige a api_server/set_shared_secret',
-        'encrypt' => 'Redirige a api_client/encrypt',
-        'decrypt' => 'Redirige a api_server/decrypt'
+        'get_public_key' => 'Forwards to api_server/get_public_key',
+        'get_shared_secret' => 'Forwards to app/get_shared_secret',
+        'set_shared_secret' => 'Forwards to api_server/set_shared_secret',
+        'encrypt' => 'Forwards to app/encrypt_message',
+        'decrypt' => 'Forwards to api_server/decrypt_message'
     ],
-    'documentation' => 'Ver README.md para más información'
+    'documentation' => 'See README.md for details'
 ]);

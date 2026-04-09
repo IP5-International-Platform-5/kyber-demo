@@ -3,7 +3,7 @@ RewriteEngine On
 # Manejar la ruta /demo
 RewriteRule ^demo/?$ demo.html [L]
 
-# Reglas para rutas con prefijo api_client o api_server
+# app = user app backend; api_server = Kyber server API
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule ^(api_client|api_server)/([^/]+)/?$ $1/$2.php [QSA,L]
+RewriteRule ^(app|api_server)/([^/]+)/?$ $1/$2.php [QSA,L]

@@ -1,39 +1,38 @@
 <?php
 /**
- * Genera un par de claves Kyber y las guarda en archivos
+ * Generate a Kyber key pair and save it to files.
  *
- * @param string $algorithm El algoritmo Kyber a usar (por defecto "Kyber1024")
- * @return array Resultado de la operación: [public_key => string, ...] o [error => string]
+ * @param string $public_key_path Path to write the public key
+ * @param string $private_key_path Path to write the private key
+ * @param string $algorithm Kyber algorithm (default "Kyber1024")
+ * @return array Operation result: [public_key => string, ...] or [error => string]
  */
 function generateKyberKeypair($public_key_path, $private_key_path, $algorithm = "Kyber1024") {
 	try {
-		# Eliminamos la verificación de OQS_KEM_alg_is_enabled para evitar el error
-		# Creamos directamente la instancia KEM
-
-		# Crear instancia de Kyber - usamos try/catch en lugar de la verificación previa
+		# Skip OQS_KEM_alg_is_enabled; create the KEM directly (avoids edge-case failures on some builds)
 		try {
 			$kem = new OQS_KEYENCAPSULATION($algorithm);
 		} catch (Exception $e) {
 			return [
-				'error' => "Error al inicializar el algoritmo $algorithm: " . $e->getMessage()
+				'error' => "Failed to initialize algorithm $algorithm: " . $e->getMessage()
 			];
 		}
 
-		# Generar par de claves
+		# Generate key pair
 		$status = $kem->keypair($public_key, $private_key);
 
 		if ($status !== OQS_SUCCESS) {
 			return [
-				'error' => 'Error al generar el par de claves'
+				'error' => 'Failed to generate key pair'
 			];
 		}
 
-		# Guardar claves en archivos
+		# Save keys to files
 		file_put_contents($public_key_path, base64_encode($public_key));
 		file_put_contents($private_key_path, base64_encode($private_key));
 
 		return [
-			'message' => 'Par de claves generado y guardado correctamente',
+			'message' => 'Key pair generated and saved successfully',
 			'public_key' => base64_encode($public_key),
 			'public_key_length' => $kem->length_public_key
 		];
@@ -45,14 +44,14 @@ function generateKyberKeypair($public_key_path, $private_key_path, $algorithm = 
 }
 
 /**
- * Obtiene la clave pública generada previamente
+ * Read the previously generated public key.
  *
- * @return array Resultado de la operación: [public_key => string] o [error => string]
+ * @return array Operation result: [public_key => string] or [error => string]
  */
 function getPublicKey($public_key_path) {
 	if (!file_exists($public_key_path)) {
 		return [
-			'error' => 'No existe una clave pública generada'
+			'error' => 'No public key has been generated'
 		];
 	}
 
@@ -64,45 +63,43 @@ function getPublicKey($public_key_path) {
 }
 
 /**
- * Encapsula una clave compartida usando la clave pública remota
+ * Encapsulate a shared secret using the remote public key.
  *
- * @param string $remote_public_key Clave pública remota en hexadecimal
- * @param string $shared_secret_path Ruta donde guardar la clave compartida
- * @return array Resultado de la operación: [ciphertext => string, shared_secret => string] o [error => string]
+ * @param string $remote_public_key Remote public key (base64)
+ * @param string $shared_secret_path Path to save the shared secret
+ * @return array Operation result: [ciphertext => string, shared_secret => string] or [error => string]
  */
 function encapsulateSharedSecret($remote_public_key, $shared_secret_path) {
 	try {
-		# Verificar que la clave pública esté proporcionada
 		if (empty($remote_public_key)) {
 			return [
-				'error' => 'No se proporcionó una clave pública para encapsular'
+				'error' => 'No public key was provided for encapsulation'
 			];
 		}
 
-		# Convertir la clave pública de hexadecimal a binario
+		# Public key is base64 on the wire (same encoding as file storage)
 		$public_key = @base64_decode($remote_public_key);
 		if ($public_key === false) {
 			return [
-				'error' => 'La clave pública no es una cadena hexadecimal válida'
+				'error' => 'Public key is not valid base64'
 			];
 		}
 
-		# Crear instancia de Kyber
 		$kem = new OQS_KEYENCAPSULATION("Kyber1024");
 
-		# Encapsular para generar ciphertext y clave compartida
+		# Encapsulate: ciphertext + shared secret (binary)
 		$status = $kem->encapsulate($ciphertext, $shared_secret, $public_key);
 
 		if ($status !== OQS_SUCCESS) {
 			return [
-				'error' => 'Error al encapsular la clave compartida'
+				'error' => 'Failed to encapsulate shared secret'
 			];
 		}
 
-		# Guardar la clave compartida para uso futuro
+		# Persist for AES-GCM step
 		file_put_contents($shared_secret_path, base64_encode($shared_secret));
 
-		# Devolver el ciphertext y la clave compartida (solo para demo)
+		# Return ciphertext and shared secret (demo only)
 		return [
 			'ciphertext' => base64_encode($ciphertext),
 			'shared_secret' => base64_encode($shared_secret)
@@ -115,43 +112,40 @@ function encapsulateSharedSecret($remote_public_key, $shared_secret_path) {
 }
 
 /**
- * Procesa el ciphertext recibido del cliente y extrae la clave compartida
+ * Decapsulate ciphertext from the client and derive the shared secret.
  *
- * @param string $ciphertext Texto cifrado recibido (en formato hex)
- * @return array Resultado de la operación: [message => string] o [error => string]
+ * @param string $ciphertext Received ciphertext (base64)
+ * @return array Operation result: [message => string] or [error => string]
  */
 function decapsulateSharedSecret($ciphertext, $private_key_path, $shared_secret_path) {
 	try {
 		if (!file_exists($private_key_path)) {
 			return [
-				'error' => 'No existe una clave privada para descifrar'
+				'error' => 'No private key found for decapsulation'
 			];
 		}
 
-		# Convertir el ciphertext de hex a binario
+		# Ciphertext is base64-encoded bytes from the client
 		$binary_ciphertext = base64_decode($ciphertext);
 		if ($binary_ciphertext === false) {
 			return [
-				'error' => 'Formato de ciphertext inválido'
+				'error' => 'Invalid ciphertext format'
 			];
 		}
 
-		# Cargar clave privada
 		$private_key = base64_decode(file_get_contents($private_key_path));
 
-		# Crear instancia de Kyber
 		$kem = new OQS_KEYENCAPSULATION("Kyber1024");
 
-		# Descifrar para obtener la clave compartida
+		# Decapsulate to the same shared secret the client derived
 		$status = $kem->decapsulate($shared_secret, $binary_ciphertext, $private_key);
 
 		if ($status !== OQS_SUCCESS) {
 			return [
-				'error' => 'Error al descifrar la clave compartida'
+				'error' => 'Failed to decapsulate shared secret'
 			];
 		}
 
-		# Guardar la clave compartida
 		file_put_contents($shared_secret_path, base64_encode($shared_secret));
 
 		return [
@@ -165,51 +159,58 @@ function decapsulateSharedSecret($ciphertext, $private_key_path, $shared_secret_
 }
 
 /**
- * Cifra un mensaje usando la clave compartida
+ * Encrypt a message using the shared secret (AES-256-GCM).
  *
- * @param string $message Mensaje a cifrar
- * @return array Resultado de la operación: [encrypted_data => string, iv => string] o [error => string]
+ * @param string $message Plaintext to encrypt
+ * @return array Operation result: [encrypted_data => string, iv => string] or [error => string]
  */
 function encryptMessage($message, $shared_secret_path) {
 	try {
 		if (!file_exists($shared_secret_path)) {
 			return [
-				'error' => 'No existe una clave compartida para cifrar'
+				'error' => 'No shared secret available for encryption'
 			];
 		}
 
-		# Verificar que GCM esté disponible
+		# Require OpenSSL AES-256-GCM
 		if (!in_array('aes-256-gcm', openssl_get_cipher_methods())) {
-			error_log("AES-256-GCM no está disponible. Métodos disponibles: " . implode(', ', openssl_get_cipher_methods()));
+			error_log("AES-256-GCM is not available. Available methods: " . implode(', ', openssl_get_cipher_methods()));
 			return [
-				'error' => 'El modo de cifrado AES-256-GCM no está disponible en este servidor'
+				'error' => 'AES-256-GCM is not available on this server'
 			];
 		}
 
-		# Cargar clave compartida
-		$shared_secret = base64_decode(file_get_contents($shared_secret_path));
+		# Shared secret file is base64; trim in case of stray newlines
+		$raw = trim(file_get_contents($shared_secret_path));
+		$shared_secret = base64_decode($raw, true);
+		if ($shared_secret === false || strlen($shared_secret) !== 32) {
+			return [
+				'error' => 'Invalid or corrupted shared secret (expected 32 bytes after base64 decode)'
+			];
+		}
 
-		# Generar vector de inicialización aleatorio de 12 bytes (recomendado para GCM)
-		//$iv = openssl_random_pseudo_bytes(12);
-		#v = '010101010101'; // Francisco
+		# 12-byte GCM IV (NIST recommendation)
+		$iv = openssl_random_pseudo_bytes(12);
 
-		# Tag de autenticación (será rellenado por openssl_encrypt)
+		# Auth tag filled by openssl_encrypt (16 bytes)
 		$tag = null;
 
-		# Cifrar usando AES-256-GCM con la clave compartida
+		# Empty AAD; tag length 16 (matches decrypt)
 		$encrypted_data = openssl_encrypt(
 			$message,
 			'aes-256-gcm',
 			$shared_secret,
 			OPENSSL_RAW_DATA,
 			$iv,
-			$tag
+			$tag,
+			'',
+			16
 		);
 
 		if ($encrypted_data === false) {
-			error_log("Error al cifrar: " . openssl_error_string());
+			error_log("Encryption failed: " . openssl_error_string());
 			return [
-				'error' => 'Error al cifrar: ' . openssl_error_string()
+				'error' => 'Encryption failed: ' . openssl_error_string()
 			];
 		}
 
@@ -219,7 +220,7 @@ function encryptMessage($message, $shared_secret_path) {
 			'tag' => base64_encode($tag)
 		];
 	} catch (Exception $e) {
-		error_log("Exception en encryptMessage: " . $e->getMessage());
+		error_log("encryptMessage exception: " . $e->getMessage());
 		return [
 			'error' => 'Error: ' . $e->getMessage()
 		];
@@ -227,60 +228,78 @@ function encryptMessage($message, $shared_secret_path) {
 }
 
 /**
- * Descifra un mensaje usando la clave compartida
+ * Decrypt a message using the shared secret.
  *
- * @param string $encrypted_data Datos cifrados (en formato hex)
- * @param string $iv Vector de inicialización (en formato hex)
- * @param string $tag Tag de autenticación (en formato hex)
- * @return array Resultado de la operación: [message => string] o [error => string]
+ * @param string $encrypted_data Ciphertext (base64)
+ * @param string $iv Initialization vector (base64)
+ * @param string $tag Authentication tag (base64)
+ * @return array Operation result: [message => string] or [error => string]
  */
 function decryptMessage($data, $shared_secret_path) {
 	try {
 		if (!file_exists($shared_secret_path)) {
 			return [
-				'error' => 'No existe una clave compartida para descifrar'
+				'error' => 'No shared secret available for decryption'
 			];
 		}
 
-		# Verificar que GCM esté disponible
 		if (!in_array('aes-256-gcm', openssl_get_cipher_methods())) {
-			error_log("AES-256-GCM no está disponible para descifrado");
+			error_log("AES-256-GCM is not available for decryption");
 			return [
-				'error' => 'El modo de cifrado AES-256-GCM no está disponible en este servidor'
+				'error' => 'AES-256-GCM is not available on this server'
 			];
 		}
 
-		# Cargar clave compartida
-		$shared_secret = base64_decode(file_get_contents($shared_secret_path));
+		# Same load path as encryptMessage()
+		$raw = trim(file_get_contents($shared_secret_path));
+		$shared_secret = base64_decode($raw, true);
+		if ($shared_secret === false || strlen($shared_secret) !== 32) {
+			return [
+				'error' => 'Invalid or corrupted shared secret (expected 32 bytes after base64 decode)'
+			];
+		}
 
-		# Convertir datos de hex a binario
-		$encrypted_data = base64_decode($data['encrypted_data']);
-		$iv = base64_decode($data['iv']);
-		$tag = base64_decode($data['tag']);
+		# JSON fields are base64; trim whitespace from copy/paste
+		$encrypted_data = base64_decode(trim((string) $data['encrypted_data']), true);
+		$iv = base64_decode(trim((string) $data['iv']), true);
+		$tag = base64_decode(trim((string) $data['tag']), true);
 
 		if ($encrypted_data === false || $iv === false || $tag === false) {
 			return [
-				'error' => 'Formato de datos cifrados inválido'
+				'error' => 'Invalid ciphertext payload (bad base64)'
 			];
 		}
 
-		# Descifrar usando AES-256-GCM con la clave compartida
+		if (strlen($iv) !== 12 || strlen($tag) !== 16) {
+			return [
+				'error' => 'IV or tag has wrong length for AES-256-GCM'
+			];
+		}
+
+		# Clear OpenSSL error queue before decrypt (openssl_decrypt may not push if auth fails)
+		while (openssl_error_string() !== false) {
+		}
 		$decrypted = openssl_decrypt(
 			$encrypted_data,
 			'aes-256-gcm',
 			$shared_secret,
 			OPENSSL_RAW_DATA,
 			$iv,
-			$tag
+			$tag,
+			''
 		);
 
 		if ($decrypted === false) {
 			$error = [];
-			while($err = openssl_error_string()) {
+			while (($err = openssl_error_string()) !== false) {
 				$error[] = $err;
 			}
+			$detail = implode('; ', $error);
+			if ($detail === '') {
+				$detail = 'GCM authentication failed (key or tag mismatch between app and server). Run the flow again from "Get public key", or delete shared_secret.key in app/keys and api_server/keys, then encapsulate and send the ciphertext again.';
+			}
 			return [
-				'error' => 'Error al descifrar: ' . implode(', ', $error) . '; shared_secret: ' . file_get_contents($shared_secret_path)
+				'error' => 'Decryption failed (wrong key or tampered data): ' . $detail
 			];
 		}
 
@@ -288,7 +307,7 @@ function decryptMessage($data, $shared_secret_path) {
 			'message' => $decrypted
 		];
 	} catch (Exception $e) {
-		error_log("Exception en decryptMessage: " . $e->getMessage());
+		error_log("decryptMessage exception: " . $e->getMessage());
 		return [
 			'error' => 'Error: ' . $e->getMessage()
 		];

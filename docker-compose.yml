@@ -1,0 +1,47 @@
+services:
+  php:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+    container_name: kyber-php
+    volumes:
+      - ./:/var/www/html
+    networks:
+      - kyber
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/nginx/Dockerfile
+    container_name: kyber-web
+    ports:
+      - "8080:80"
+    depends_on:
+      - php
+    networks:
+      - kyber
+
+  # Vite dev server: hot reload for src/, *.html, etc. (use profile "dev")
+  # Alpine image is smaller than bookworm; pulls are often faster on Docker Desktop.
+  dev:
+    profiles:
+      - dev
+    image: node:20-alpine
+    container_name: kyber-dev
+    working_dir: /app
+    volumes:
+      - ./:/app
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_DEV_PROXY_TARGET: http://web
+      VITE_DOCKER_DEV: "1"
+    command: sh -c "npm ci && exec npx vite --host 0.0.0.0"
+    depends_on:
+      - web
+    networks:
+      - kyber
+
+networks:
+  kyber:
+    driver: bridge

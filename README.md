@@ -1,184 +1,256 @@
-# API para Kyber Post-Quantum Cryptography
+# Kyber Post-Quantum Cryptography API
 
-Esta API implementa un sistema basado en Kyber (algoritmo post-cuántico) para intercambio de claves y cifrado de mensajes.
+Key exchange and message encryption using **Kyber** (ML-KEM / post-quantum cryptography), exposed as a PHP API with a web demo.
 
-## Requisitos
+## Table of contents
 
-- PHP 7.4 o superior
-- Extensión libOQS-php instalada (ver sección de instalación)
-- Extensión OpenSSL para PHP
-- Node.js para el despliegue y desarrollo frontend
-- Git
+- [Quick start with Docker](#quick-start-docker)
+- [Front, user app backend, and Kyber server](#front-app-and-server)
+- [Requirements](#requirements)
+- [Local install without Docker](#local-install)
+- [API (endpoints)](#api-endpoints)
+- [Communication flow](#flow)
+- [Demo](#demo)
+- [Development and deployment](#development)
+- [Security](#security)
 
-## Instalación
+<a id="quick-start-docker"></a>
 
-### 1. Clonar el repositorio
+## Quick start with Docker
 
-Este proyecto utiliza git submodules para la librería libOQS-php. Clona el repositorio con:
+You do not need PHP or a local **liboqs-php** build: the backend runs in an image with the **oqsphp** extension, and the frontend is built inside the Nginx image (`docker/php`, `docker/nginx`).
+
+| Service | Role |
+|---------|------|
+| **php** | `php:8.4-fpm-bookworm`, compiled extension (libOQS + `liboqs-php`). Mounts the repo at `/var/www/html`. |
+| **web** | Nginx serving the built `dist/`. You do not need `npm install` on your machine just to try the app. |
+
+### Steps
+
+1. Clone with submodules: `git clone --recursive <repo-url>` (if you already cloned without them: `git submodule update --init --recursive`).
+2. From the repo root: `docker compose up --build` (or `npm run docker:up`).
+3. Open **http://localhost:8080** — the demo is at **`/demo`** or **`/demo.html`**.
+
+### Ports
+
+| Port | Use |
+|------|-----|
+| **8080** | App served by Nginx (static front from the build; production-like). |
+| **5173** | Only when using the **dev** profile (Vite with hot reload). |
+
+### Hot-reload front ( **`dev`** profile )
+
+To edit `src/`, `index.html`, or `demo.html` without rebuilding the `web` image:
 
 ```bash
-git clone --recursive https://github.com/TU_USUARIO/TU_REPO.git
-cd TU_REPO
+npm run docker:dev
 ```
 
-Si ya clonaste el repositorio sin el flag `--recursive`, inicializa los submodules con:
+Open **http://localhost:5173** (not 8080 for this). Vite proxies `/app` (user app backend) and `/api_server` to the Nginx container; PHP stays mounted from the repo.
+
+### Docker notes
+
+- The **first** **php** image build can take a long time (compiles libOQS). The **web** image runs `npm ci` and `vite build` during build.
+- The **`dev`** profile uses the official **`node:20-alpine`** image (small). The first time, Docker downloads it; if the “Pulling” bar looks stuck, it is often a slow network or large layers: wait, or run `docker pull node:20-alpine` in a terminal to see per-layer progress.
+- Keys and logs on your disk via the **php** service volume: `app/keys/` (user app), `api_server/keys/` (Kyber server), `logs/` (in a real deployment these would be different hosts; here they are simulated with two folders).
+- If you only change the **static** front baked into the `web` image, rebuild: `docker compose build web` or `docker compose up --build`.
+
+<a id="front-app-and-server"></a>
+
+## Front, user app backend, and Kyber server
+
+The **browser** is the front end. The **user application backend** (`app/`) holds routes such as encapsulation and AES encryption—what you would deploy next to your static site or SPA. The **Kyber server API** (`api_server/`) exposes the server public key, decapsulation, and decrypt. Shared crypto code lives under **`api/`** (e.g. `kyber_utils.php`, CORS).
+
+Keys: `app/keys/` for the app side and `api_server/keys/` for the server. In production these directories would live on different machines; locally or in Docker they are **simulated** with two folders. If you still have keys under the old `api_client/keys/` path, move them to `app/keys/`. After Kyber, each side keeps its own copy of the shared secret on disk (the **value** must match). If you get the steps out of order, start again from “public key” or delete those `shared_secret.key` files / key folders.
+
+The **`demo.html`** callout explains that one page only groups HTTP calls that would normally go to the app backend and to the server API separately.
+
+<a id="requirements"></a>
+
+## Requirements
+
+- **PHP 7.4+** for a local install (the Docker backend image uses **PHP 8.4** with the extension prebuilt).
+- **libOQS-php** locally (see install); with Docker you do not need it on the host.
+- **OpenSSL** for PHP.
+- **Node.js** only if you build the front on your machine or use `npm run dev` / `docker:dev`.
+- **Git**
+
+<a id="local-install"></a>
+
+## Local install without Docker
+
+You need PHP with **oqsphp** and Node for the front. See [SETUP-LOCAL.md](SETUP-LOCAL.md) for a practical guide (e.g. XAMPP).
+
+### 1. Clone the repository
+
+This project uses the **liboqs-php** submodule:
+
+```bash
+git clone --recursive https://github.com/YOUR_USER/YOUR_REPO.git
+cd YOUR_REPO
+```
+
+If you cloned without `--recursive`:
 
 ```bash
 git submodule update --init --recursive
 ```
 
-### 2. Compilar libOQS-php
+### 2. Build libOQS-php
 
-1. Instala las dependencias necesarias:
+1. Dependencies (Debian/Ubuntu example):
+
 ```bash
 sudo apt install -y cmake gcc ninja-build swig php-dev
 ```
 
-2. Entra al directorio y ejecuta el script de compilación:
+2. Build:
+
 ```bash
 cd liboqs-php
 ./build.sh
 ```
 
-3. Agrega la extensión a tu archivo php.ini:
+3. In `php.ini`:
+
 ```
-extension=/ruta/completa/a/liboqs-php/build/oqsphp.so
+extension=/full/path/to/liboqs-php/build/oqsphp.so
 ```
 
-4. Reinicia tu servidor web.
+4. Restart the web server if applicable.
 
-### 3. Configurar variables de entorno
+### 3. Environment variables (optional)
 
-1. Copia el archivo `.env.example` a `.env`:
 ```bash
 cp .env.example .env
 ```
 
-2. Edita el archivo `.env` con tus credenciales de despliegue SFTP (si aplica).
+Edit `.env` if you need variables (e.g. `VITE_SERVER_PORT` with local Vite). Not required to try Docker.
 
-## Estructura del API
+<a id="api-endpoints"></a>
 
-La API proporciona los siguientes endpoints:
+## API (endpoints)
 
-### 1. Obtener clave pública
-- **URL**: `/api_server/get_public_key`
-- **Método**: GET
-- **Respuesta**: JSON con la clave pública del servidor en formato hexadecimal.
+### 1. Get public key
 
-### 2. Generar clave compartida
-- **URL**: `/api_client/get_shared_secret`
-- **Método**: POST
-- **Cuerpo de la petición**:
+- **URL:** `/api_server/get_public_key`
+- **Method:** GET
+- **Response:** JSON with the public key in **base64** (Kyber bytes).
+
+### 2. Create shared secret
+
+- **URL:** `/app/get_shared_secret`
+- **Method:** POST
+- **Body:**
+
   ```json
   {
-    "public_key": "clave_pública_en_hexadecimal"
+    "public_key": "server_public_key_base64"
   }
   ```
-- **Respuesta**: JSON con la clave compartida en formato hexadecimal y el ciphertext.
 
-### 3. Enviar clave compartida
-- **URL**: `/api_server/set_shared_secret`
-- **Método**: POST
-- **Cuerpo de la petición**:
+- **Response:** `ciphertext` and `shared_secret` in **base64** (plaintext secret in the response is for demos only).
+
+### 3. Send shared secret
+
+- **URL:** `/api_server/set_shared_secret`
+- **Method:** POST
+- **Body:**
+
   ```json
   {
-    "ciphertext": "texto_cifrado_en_hexadecimal"
+    "ciphertext": "kyber_ciphertext_base64"
   }
   ```
-- **Respuesta**: JSON con información sobre el proceso de descapsulación.
 
-### 4. Cifrar mensaje
-- **URL**: `/api_client/encrypt_message`
-- **Método**: POST
-- **Cuerpo de la petición**:
+- **Response:** Decapsulation result (e.g. `shared_secret` in base64).
+
+### 4. Encrypt message
+
+- **URL:** `/app/encrypt_message`
+- **Method:** POST
+- **Body:**
+
   ```json
   {
-    "message": "mensaje_a_cifrar"
+    "message": "plaintext_message"
   }
   ```
-- **Respuesta**: JSON con los datos cifrados y el vector de inicialización.
 
-### 5. Descifrar mensaje
-- **URL**: `/api_server/decrypt_message`
-- **Método**: POST
-- **Cuerpo de la petición**:
+- **Response:** `encrypted_data`, `iv`, and `tag` (AES-256-GCM), all **base64**.
+
+### 5. Decrypt message
+
+- **URL:** `/api_server/decrypt_message`
+- **Method:** POST
+- **Body:**
+
   ```json
   {
-    "encrypted_data": "datos_cifrados_en_hexadecimal",
-    "iv": "vector_de_inicializacion_en_hexadecimal"
+    "encrypted_data": "base64_ciphertext",
+    "iv": "base64_iv",
+    "tag": "base64_auth_tag"
   }
   ```
-- **Respuesta**: JSON con el mensaje descifrado.
 
-## Flujo de comunicación
+- **Response:** `message` field (plaintext).
 
-1. El cliente solicita la clave pública al servidor mediante `/api_server/get_public_key`.
-2. El cliente utiliza la clave pública para encapsular una clave secreta compartida mediante `/api_client/get_shared_secret`.
-3. El cliente envía el ciphertext al servidor mediante `/api_server/set_shared_secret`.
-4. El servidor usa su clave privada para extraer la clave secreta compartida.
-5. Para las comunicaciones subsiguientes, el cliente cifra los mensajes usando la clave compartida mediante `/api_client/encrypt_message`.
-6. El servidor descifra los mensajes recibidos del cliente mediante `/api_server/decrypt_message`.
+<a id="flow"></a>
 
-## Demo de Cliente
+## Communication flow
 
-Se incluye un archivo de demostración `demo.html` que muestra cómo un cliente web podría interactuar con esta API:
+1. Front requests the public key: `/api_server/get_public_key`.
+2. User app backend encapsulates via `/app/get_shared_secret`.
+3. Front sends the ciphertext: `/api_server/set_shared_secret`.
+4. Server decapsulates with its private key and derives the same shared secret.
+5. User app backend encrypts messages: `/app/encrypt_message`.
+6. Server decrypts: `/api_server/decrypt_message`.
 
-- Obtiene la clave pública del servidor
-- Simula la encapsulación de una clave compartida
-- Cifra y envía mensajes usando la clave compartida
+<a id="demo"></a>
 
-Nota: La demo simula el proceso de encapsulación de Kyber en el cliente, ya que aún no existen implementaciones en JavaScript. En un caso real, se podría usar WebAssembly con una implementación de Kyber compilada.
+## Demo
 
-## Desarrollo y Despliegue
+The **`demo.html`** page walks through the flow by calling the backends. The browser **does not** run Kyber in JavaScript: post-quantum work is done by **PHP** in `app/` (user app) and `api_server/` (Kyber server).
 
-### Comandos de desarrollo
+- Fetches the server public key.
+- Agrees the shared secret via the API (Kyber on the server).
+- Encrypts and decrypts with AES-GCM using that secret.
 
-- `npm run dev` - Inicia el servidor de desarrollo de Vite
-- `npm run build` - Construye la aplicación para producción
-- `npm run preview` - Previsualiza la versión compilada localmente
+A 100% browser-only front would need WebAssembly or another Kyber module; here encapsulation and encrypt live in **`app/`** as the user backend, separate from **`api_server/`** on a real network.
 
-### Despliegue
+<a id="development"></a>
 
-La aplicación se construye en la carpeta `dist/` que puede desplegarse en cualquier servidor web.
+## Development and deployment
 
-#### Despliegue básico
+### Useful commands
 
-1. Construye la aplicación para producción:
-   ```bash
-   npm run build
-   ```
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Vite dev server (local, proxies to PHP). |
+| `npm run build` | Writes `dist/`. |
+| `npm run preview` | Previews `dist/` (API proxy in `vite.config.js`). |
+| `npm run docker:up` | `docker compose up --build` (Nginx + PHP; `dist` is produced in the image build). |
+| `npm run docker:dev` | Docker stack + Vite on **5173** (`dev` profile, hot reload for the front). |
 
-2. Los archivos generados en `dist/` pueden copiarse a tu servidor web.
+### Front deployment
 
-#### Opciones de despliegue
+`npm run build` outputs static assets under **`dist/`**, ready for any static host or Nginx/Apache next to `app/`, `api_server/`, `api/`, etc.
 
-- **Hosting estático**: GitHub Pages, Netlify, Vercel
-- **Servidor web**: Apache, Nginx
-- **Cloud providers**: AWS S3, Google Cloud Storage
-- **FTP/SFTP**: Cualquier servidor con acceso FTP/SFTP
+### Environment variables
 
-#### Variables de entorno
+Copy `.env.example` to `.env` and adjust as needed. **Do not commit `.env`.**
 
-Si necesitas configurar variables de entorno:
+### Custom deployment
 
-1. Copia `.env.example` a `.env`:
-   ```bash
-   cp .env.example .env
-   ```
+You can use a `custom/` directory (gitignored) for your own scripts (SFTP, rsync, etc.).
 
-2. Edita las variables según tu configuración
+<a id="security"></a>
 
-**Importante**: El archivo `.env` nunca debe subirse al repositorio por seguridad.
+## Security
 
-#### Despliegue personalizado
+This repository is **educational and demonstrative**. For production:
 
-Para configurar un sistema de despliegue automático personalizado (ej. SFTP, FTP, rsync), puedes crear un directorio `custom/` dentro del proyecto con tu configuración específica. Este directorio está ignorado por Git para mantener tu setup personal seguro y separado del repositorio público.
-
-## Nota importante sobre seguridad
-
-Este código es para fines educativos y demostrativos. Para un entorno de producción:
-
-1. Implementa autenticación adecuada para tus endpoints
-2. Usa HTTPS para todas las comunicaciones
-3. Considera usar mecanismos adicionales de protección para las claves almacenadas
-4. Implementa políticas de rotación de claves
+1. Authentication and authorization on endpoints.
+2. **HTTPS** everywhere.
+3. Proper protection for keys at rest.
+4. Key rotation policies.

@@ -1,10 +1,8 @@
 <?php
-# Paths for key material on the server side
+# User application backend: paths for keys and logs (same process as the front in this demo)
 define('REQUESTS_LOG', __DIR__ . '/../logs/requests.log');
 define('KEYS_DIR', __DIR__ . '/keys');
-define('PUBLIC_KEY_PATH', KEYS_DIR . '/public.key');
-define('PRIVATE_KEY_PATH', KEYS_DIR . '/private.key');
-# Kyber + AES shared secret on the server (in production, only on this machine)
+# Kyber + AES shared secret for this app (in production, only on this host with the front)
 define('SHARED_SECRET_PATH', KEYS_DIR . '/shared_secret.key');
 
 # Create keys directory if missing

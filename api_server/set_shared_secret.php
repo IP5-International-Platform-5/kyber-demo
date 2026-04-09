@@ -1,58 +1,53 @@
 <?php
-# Incluir cabeceras CORS
+# Include CORS headers and path constants
 require_once __DIR__ . '/../api/cors_headers.php';
 require_once __DIR__ . '/config.php';
 
-# Endpoint para enviar la clave compartida
+# Accept Kyber ciphertext and store derived shared secret
 header('Content-Type: application/json');
-
-# Habilitar logging de errores
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
-error_reporting(E_ALL);
 
 require_once __DIR__ . '/../api/kyber_utils.php';
 
-# Método solo permitido: POST
+# Only POST allowed
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
     response(json_encode([
-        'error' => 'Método no permitido. Use POST.'
+        'error' => 'Method not allowed. Use POST.'
     ]));
     exit;
 }
 
-# Obtener el cuerpo JSON de la petición
+# Read JSON request body
 $json_data = file_get_contents('php://input');
 $data = json_decode($json_data, true);
 
-# Verificar que se recibió el ciphertext
+# Verify that the ciphertext is present
 if (!isset($data['ciphertext']) || empty($data['ciphertext'])) {
     http_response_code(400);
     response(json_encode([
-        'error' => 'Datos incompletos. Se requiere el campo "ciphertext".'
+        'error' => 'Incomplete data. The "ciphertext" field is required.'
     ]));
     exit;
 }
 
 try {
-    # Obtener la clave compartida
+    # Kyber decapsulate using server private key; writes shared_secret.key
     $result = decapsulateSharedSecret($data['ciphertext'], PRIVATE_KEY_PATH, SHARED_SECRET_PATH);
 
-    # Verificar si hubo error
+    # If there was an error, return it
     if (isset($result['error'])) {
         http_response_code(500);
         response(json_encode($result));
         exit;
     }
 
-    # Devolver el resultado en formato JSON
+    # Return derived secret as base64 (demo visibility only)
     $json_response = json_encode([
         'shared_secret' => base64_encode($result['shared_secret'])
     ]);
 
     if ($json_response === false) {
-        throw new Exception('Error al codificar la respuesta JSON: ' . json_last_error_msg());
+        throw new Exception('Failed to encode JSON response: ' . json_last_error_msg());
     }
 
     response($json_response);
@@ -60,7 +55,7 @@ try {
     http_response_code(500);
 
     response(json_encode([
-        'error' => 'Error interno del servidor: ' . $e->getMessage()
+        'error' => 'Internal server error: ' . $e->getMessage()
     ]));
 }
 

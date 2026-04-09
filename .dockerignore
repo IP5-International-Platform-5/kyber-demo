@@ -1,0 +1,12 @@
+node_modules
+.git
+.gitmodules
+dist
+*.log
+.env
+.env.*
+app/keys
+api_server/keys
+keys
+.vscode
+.idea

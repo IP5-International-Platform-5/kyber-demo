@@ -1,38 +1,37 @@
 <?php
-# Incluir cabeceras CORS
+# Include CORS headers and path constants
 require_once __DIR__ . '/../api/cors_headers.php';
 require_once __DIR__ . '/config.php';
 
-# Endpoint para descifrar mensajes usando la clave compartida
+# Decrypt payload with AES-GCM using the shared secret
 header('Content-Type: application/json');
 
 require_once __DIR__ . '/../api/kyber_utils.php';
 
-# Método solo permitido: POST
+# Only POST allowed
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
     response(json_encode([
-        'error' => 'Método no permitido. Use POST.'
+        'error' => 'Method not allowed. Use POST.'
     ]));
     exit;
 }
 
-# Obtener el cuerpo JSON de la petición
+# Read JSON request body
 $json_data = file_get_contents('php://input');
 $data = json_decode($json_data, true);
 
-# Verificar que se recibieron los datos necesarios
 if (!isset($data['encrypted_data']) || empty($data['encrypted_data']) ||
     !isset($data['iv']) || empty($data['iv']) ||
     !isset($data['tag']) || empty($data['tag'])) {
     http_response_code(400);
     response(json_encode([
-        'error' => 'Datos incompletos. Se requieren los campos "encrypted_data", "iv" y "tag".'
+        'error' => 'Incomplete data. The fields "encrypted_data", "iv", and "tag" are required.'
     ]));
     exit;
 }
 
-# Descifrar el mensaje
+# Uses shared_secret.key on the server
 $result = decryptMessage($data, SHARED_SECRET_PATH);
 $response = json_encode($result);
 

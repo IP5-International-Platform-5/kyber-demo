@@ -7,7 +7,10 @@
     "dev": "vite",
     "full": "./run-full.sh",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "docker:build": "docker compose build",
+    "docker:up": "docker compose up --build -d",
+    "docker:dev": "docker compose --profile dev up --build"
   },
   "devDependencies": {
     "vite": "^6.3.1"

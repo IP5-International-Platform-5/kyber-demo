@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Demo Cliente-Servidor Kyber</title>
+    <title>Kyber Client-Server Demo</title>
     <script>
-        // Definimos el puerto del servidor API
+        // Set the API server port
         window.SERVER_PORT = '8000';
     </script>
     <style>
@@ -73,32 +73,117 @@
             font-family: monospace;
         }
         .result {
+            margin-top: 12px;
+            padding: 12px 14px;
+            border-radius: 6px;
+            border: 1px solid #e3e3e3;
+            background: #fafafa;
+            color: #333;
+            font-family: ui-monospace, SFMono-Regular, monospace;
+            font-size: 13px;
+            line-height: 1.5;
             overflow-x: auto;
-            background-color: #f5f5f5;
-            padding: 10px;
-            border-radius: 4px;
-            margin-top: 10px;
+        }
+        .result.success {
+            border-color: #b7dfb9;
+            background: #f3faf3;
+            color: #1b5e20;
+        }
+        .result.error {
+            border-color: #f0b4b4;
+            background: #fff8f8;
+            color: #b71c1c;
+        }
+        .demo-intent {
+            max-width: 1000px;
+            width: 100%;
+            margin: 0 0 24px 0;
+            padding: 16px 18px;
+            border: 1px solid #c5d4e8;
+            border-radius: 6px;
+            background: #f0f5fc;
+            color: #1a2f4a;
+            font-size: 95%;
+            line-height: 1.55;
+            box-sizing: border-box;
+        }
+        .demo-intent p {
+            margin: 0;
+        }
+        .demo-intent code {
+            font-size: 90%;
+            background: #e8eef8;
+            padding: 1px 5px;
+            border-radius: 3px;
+        }
+        .container p code {
+            font-family: ui-monospace, monospace;
+            font-size: 0.92em;
+            background: #eee;
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
+        .inputs .field-label {
+            display: block;
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: #444;
+            margin-bottom: 4px;
+            letter-spacing: 0.02em;
+        }
+        .container .inputs textarea {
+            width: 100%;
+            max-width: 100%;
+            min-height: 72px;
+            margin-top: 0;
+            margin-bottom: 8px;
+            padding: 8px;
             font-family: monospace;
+            font-size: 12px;
+            box-sizing: border-box;
         }
-        .error {
-            color: red;
+        .container .inputs input[type="text"] {
+            width: 100%;
+            max-width: 100%;
+            margin-top: 0;
+            margin-bottom: 8px;
+            padding: 8px;
+            font-family: monospace;
+            font-size: 12px;
+            box-sizing: border-box;
         }
-        .success {
-            color: green;
+        .inputs + button {
+            margin-top: 4px;
+        }
+        .shared-secret-value {
+            color: #c45c00;
+            font-weight: 600;
+        }
+        .endpoint-url {
+            font-size: 0.88rem;
+            margin: 0.35em 0 0.75em;
+        }
+        .endpoint-url code {
+            word-break: break-all;
         }
     </style>
 </head>
 <body>
-    <h1>Demo Cliente-Servidor Kyber</h1>
+    <h1>Kyber Client-Server Demo</h1>
 
-    <p>Panel de ejemplos de uso de los endpoints de servidor.</p>
+    <aside class="demo-intent" role="note">
+        <p>
+            The demo calls <code>/app/…</code> (app backend) and <code>/api_server/…</code> (Kyber server). On your machine both run in the same project; in production they would usually be separate. Use the browser’s Network tab and Console to inspect requests and logs.
+        </p>
+    </aside>
 
     <!-- Container 1 -->
     <div class="container">
-        <div class="center-column">
-            <h2>1. Obtener clave pública del servidor</h2>
-            <p>El cliente obtiene y almacena la clave pública del servidor.</p>
-            <button id="getPublicKeyBtn">Obtener Clave Pública</button>
+        <div class="right-column">
+            <h2>1. Get the server public key</h2>
+            <p>The client fetches and stores the server’s public key.</p>
+            <p class="endpoint-url">Endpoint: <code data-api-url="get_public_key"></code></p>
+            <button id="getPublicKeyBtn">Get public key</button>
             <div class="result" id="publicKeyResult"></div>
         </div>
     </div>
@@ -106,86 +191,110 @@
     <!-- Container 2 -->
     <div class="container">
         <div class="left-column">
-            <h2>2. Generar una clave compartida en cliente</h2>
-            <p>El cliente genera y almacena una clave compartida y la encapsula con la clave pública del servidor.</p>
-            <button id="encapsulateBtn" disabled>Generar clave compartida</button>
+            <h2>2. Create a shared secret on the client</h2>
+            <p>The client gets the server public key and derives and stores a shared secret and encapsulates it.</p>
+            <div class="inputs">
+                <label class="field-label" for="encapsulatePublicKeyInput">Server public key (base64, JSON <code>public_key</code>)</label>
+                <textarea id="encapsulatePublicKeyInput" placeholder='Filled after step 1 — body: { "public_key": "…" }'></textarea>
+            </div>
+            <button id="encapsulateBtn" disabled>Create shared secret</button>
             <div class="result" id="encapsulateResult"></div>
         </div>
         <div class="right-column">
-            <h2>3. Enviar la clave compartida al servidor</h2>
-            <p>El cliente envía al servidor la clave compartida cifrada, para desencapsularla con su clave privada y almacenarla.</p>
-            <button id="sendCiphertextBtn" disabled>Enviar clave compartida al servidor</button>
+            <h2>3. Send the ciphertext to the server</h2>
+            <p>The client sends the ciphertext to the server to decapsulate it with its private key and store the shared secret.</p>
+            <p class="endpoint-url">Endpoint: <code data-api-url="set_shared_secret"></code></p>
+            <div class="inputs">
+                <label class="field-label" for="kyberCiphertextInput">Kyber KEM ciphertext (base64)</label>
+                <textarea id="kyberCiphertextInput" placeholder="Filled after step 2 — sent in the request body to the server"></textarea>
+            </div>
+            <button id="sendCiphertextBtn" disabled>Send ciphertext to server</button>
             <div class="result" id="sendSharedSecretResult"></div>
         </div>
     </div>
 
-    <!-- Container 4 -->
+    <!-- Container 4 (steps 4–5: encrypt / decrypt) -->
     <div class="container">
         <div class="left-column">
-            <h2>4. Cifrar un mensaje en cliente</h2>
-            <p>Introduzca el texto a cifrar usando la clave compartida:</p>
-            <textarea id="messageInput" placeholder="Escribe un mensaje aquí...">Este es un mensaje privado</textarea>
-            <button id="encryptAndSendBtn">Cifrar en Cliente</button>
+            <h2>4. Encrypt a message on the client</h2>
+            <p>The client encrypts a message with the saved shared secret.</p>
+            <label class="field-label" for="messageInput">Plaintext message</label>
+            <textarea id="messageInput" placeholder="Text to encrypt with the shared secret">This is a private message</textarea>
+            <button id="encryptAndSendBtn">Encrypt on client</button>
             <div class="result" id="encryptResult"></div>
         </div>
         <div class="right-column">
-            <h2>5. Descifrar el mensaje en servidor</h2>
-            <p>El servidor descifra el mensaje enviado usando la clave compartida:</p>
-            <button id="decryptBtn">Descifrar en Servidor</button>
+            <h2>5. Decrypt the message on the server</h2>
+            <p>The client sends the payload to the server to decrypt it using the shared secret.</p>
+            <p class="endpoint-url">Endpoint: <code data-api-url="decrypt_message"></code></p>
             <div class="inputs">
-                <input type="text" id="encryptedData" placeholder="encryptedData"><br/>
-                <input type="text" id="encryptionIv" placeholder="encryptionIv"><br/>
-                <input type="text" id="encryptionTag" placeholder="encryptionTag">
+                <label class="field-label" for="encryptedData">Encrypted payload (<code>encrypted_data</code>, base64)</label>
+                <input type="text" id="encryptedData" placeholder="From step 4 — AES-GCM ciphertext" autocomplete="off">
+                <label class="field-label" for="encryptionIv">IV / nonce (<code>iv</code>, base64)</label>
+                <input type="text" id="encryptionIv" placeholder="From step 4" autocomplete="off">
+                <label class="field-label" for="encryptionTag">Auth tag (<code>tag</code>, base64)</label>
+                <input type="text" id="encryptionTag" placeholder="From step 4" autocomplete="off">
             </div>
+            <button id="decryptBtn">Decrypt on server</button>
             <div class="result" id="decryptResult"></div>
         </div>
     </div>
 
+    <script>
+        (function () {
+            var base = (typeof location !== 'undefined' ? location.origin : '') + '/api_server/';
+            document.querySelectorAll('[data-api-url]').forEach(function (el) {
+                el.textContent = base + el.getAttribute('data-api-url');
+            });
+        })();
+    </script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
     <script type="module">
-        // Esperar a que el documento esté completamente cargado
+        // Wait until the document is fully loaded
         document.addEventListener('DOMContentLoaded', () => {
-            // Variables globales para el script
+            // Global variables for this script
             let serverPublicKey = null;
             let sharedSecret = null;
             let ciphertext = null;
 
-            // Obtener la URL base de la API
+            // Get the API base URL
             const getApiBaseUrl = () => {
-                // Usar ruta relativa para la API
+                // Use a relative path for the API
                 return '';
             };
 
-            // Función para construir URLs de la API
+            // Build API URLs (legacy top-level paths)
             const getApiUrl = (endpoint) => {
-                // Eliminar la extensión .php si existe
+                // Strip .php if present
                 endpoint = endpoint.replace('.php', '');
-                // Usar ruta relativa para la API
+                // Use a relative path for the API
                 return `/${endpoint}`;
             };
 
-            const getClientApiUrl = (endpoint) => {
-                // Eliminar la extensión .php si existe
+            // User app backend (PHP next to the front in this demo)
+            const getAppApiUrl = (endpoint) => {
+                // Strip .php if present
                 endpoint = endpoint.replace('.php', '');
-                // Usar ruta relativa para la API
-                return `/api_client/${endpoint}`;
+                // Use a relative path for the API
+                return `/app/${endpoint}`;
             };
 
+            // Kyber server API
             const getServerApiUrl = (endpoint) => {
-                // Eliminar la extensión .php si existe
+                // Strip .php if present
                 endpoint = endpoint.replace('.php', '');
-                // Usar ruta relativa para la API
+                // Use a relative path for the API
                 return `/api_server/${endpoint}`;
             };
 
-            // Configuración para todas las peticiones fetch
+            // Default options for every fetch() call
             const getFetchOptions = (options = {}) => {
-                // Asegurarnos que tenemos headers
+                // Make sure we have a headers object
                 if (!options.headers) {
                     options.headers = {};
                 }
 
-                // Si hay credenciales, asegurarse de enviar las cookies
+                // If using credentials, send cookies with the request
                 if (!options.credentials) {
                     options.credentials = 'include';
                 }
@@ -193,14 +302,14 @@
                 return options;
             };
 
-            // Función para convertir hex a arrayBuffer
+            // Hex string → ArrayBuffer
             function hexToArrayBuffer(hexString) {
                 return new Uint8Array(
                     hexString.match(/[\da-f]{2}/gi).map(h => parseInt(h, 16))
                 ).buffer;
             }
 
-            // Función para convertir arrayBuffer a hex
+            // ArrayBuffer → hex string
             function arrayBufferToHex(buffer) {
                 return Array.prototype.map.call(
                     new Uint8Array(buffer),
@@ -208,163 +317,227 @@
                 ).join('');
             }
 
-            // Manejar obtención de clave pública
+            function resetResultBox(id) {
+                const el = document.getElementById(id);
+                el.innerHTML = '';
+                el.className = 'result';
+            }
+
+            function clearStep5Outputs() {
+                resetResultBox('decryptResult');
+                document.getElementById('encryptedData').value = '';
+                document.getElementById('encryptionIv').value = '';
+                document.getElementById('encryptionTag').value = '';
+                document.getElementById('decryptBtn').disabled = true;
+            }
+
+            function clearStep3Outputs() {
+                resetResultBox('sendSharedSecretResult');
+                document.getElementById('kyberCiphertextInput').value = '';
+                document.getElementById('sendCiphertextBtn').disabled = true;
+            }
+
+            function clearStep2Outputs() {
+                resetResultBox('encapsulateResult');
+                document.getElementById('encapsulatePublicKeyInput').value = '';
+                document.getElementById('encapsulateBtn').disabled = true;
+            }
+
+            function clearStep4Outputs() {
+                resetResultBox('encryptResult');
+            }
+
+            // Handle: fetch server public key
             document.getElementById('getPublicKeyBtn').addEventListener('click', async () => {
                 const resultElement = document.getElementById('publicKeyResult');
+
+                resetResultBox('publicKeyResult');
+                clearStep2Outputs();
+                clearStep3Outputs();
+                clearStep4Outputs();
+                clearStep5Outputs();
+                document.getElementById('encryptAndSendBtn').disabled = true;
+                ciphertext = null;
+                sharedSecret = null;
+                serverPublicKey = null;
 
                 try {
                     const response = await fetch(getServerApiUrl('get_public_key'), getFetchOptions());
                     const data = await response.json();
 
-                    console.log('Respuesta get_public_key:', data);
+                    console.log('get_public_key response:', data);
 
-                    // Si hay error, mostrarlo
+                    // If the API returned an error, show it
                     if (data.error) {
                         resultElement.innerHTML = `Error: ${data.error}`;
                         resultElement.classList.add('error');
                     }
-                    // Si hay clave pública, procesarla
+                    // If we got a public key, use it
                     else if (data.public_key) {
                         serverPublicKey = data.public_key;
 
-                        resultElement.innerHTML = `Clave pública del servidor obtenida:<br>
+                        resultElement.innerHTML = `Server public key received and saved in the browser:<br>
                         <br>${serverPublicKey}`;
                         resultElement.classList.add('success');
+                        document.getElementById('encapsulatePublicKeyInput').value = serverPublicKey;
                         document.getElementById('encapsulateBtn').disabled = false;
                     }
-                    // Respuesta inesperada
+                    // Unexpected response
                     else {
-                        resultElement.innerHTML = `Error: Respuesta inesperada`;
+                        resultElement.innerHTML = `Error: Unexpected response`;
                         resultElement.classList.add('error');
-                        console.error('Respuesta inesperada:', data);
+                        console.error('Unexpected response:', data);
                     }
                 } catch (error) {
-                    resultElement.innerHTML = `Error de conexión: ${error.message}`;
+                    resultElement.innerHTML = `Connection error: ${error.message}`;
                     resultElement.classList.add('error');
-                    console.error('Error completo:', error);
+                    console.error('Full error:', error);
                 }
             });
 
-            // Solicitar al servidor que genere una clave compartida y ciphertext
+            // Ask the user app backend to encapsulate (shared secret + ciphertext)
             document.getElementById('encapsulateBtn').addEventListener('click', async () => {
                 const resultElement = document.getElementById('encapsulateResult');
 
-                if (!serverPublicKey) {
-                    resultElement.innerHTML = 'Error: Primero debe obtener la clave pública del servidor';
+                clearStep3Outputs();
+                clearStep4Outputs();
+                clearStep5Outputs();
+                document.getElementById('encryptAndSendBtn').disabled = true;
+                ciphertext = null;
+                sharedSecret = null;
+
+                const publicKeyPayload = document.getElementById('encapsulatePublicKeyInput').value.trim();
+
+                if (!publicKeyPayload) {
+                    resultElement.innerHTML = 'Error: No public key (complete step 1 first)';
                     resultElement.classList.add('error');
                     return;
                 }
 
+                serverPublicKey = publicKeyPayload;
+
                 try {
-                    // Llamamos al endpoint usando POST para evitar límites de URL
-                    const response = await fetch(getClientApiUrl('get_shared_secret'), getFetchOptions({
+                    // POST body matches the textarea: { "public_key": "<base64>" }
+                    const response = await fetch(getAppApiUrl('get_shared_secret'), getFetchOptions({
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json'
                         },
                         body: JSON.stringify({
-                            public_key: serverPublicKey
+                            public_key: publicKeyPayload
                         })
                     }));
                     const data = await response.json();
 
-                    console.log('Respuesta get_shared_secret:', data);
+                    console.log('get_shared_secret response:', data);
 
-                    // Si hay error, mostrarlo
+                    // If the API returned an error, show it
                     if (data.error) {
                         resultElement.innerHTML = `Error: ${data.error}`;
                         resultElement.classList.add('error');
                     }
-                    // Si hay ciphertext y shared_secret, procesarlos
+                    // If we got ciphertext and shared_secret, keep them
                     else if (data.ciphertext && data.shared_secret) {
                         ciphertext = data.ciphertext;
                         sharedSecret = data.shared_secret;
 
-                        resultElement.innerHTML = `Encapsulado en el cliente:<br>
-                        <br>Clave compartida (secreta!): ${sharedSecret}
-                        <br>Ciphertext: ${ciphertext}`;
+                        resultElement.innerHTML = `Created and encapsulated on the client:<br><br>
+                        New shared secret to encapsulate (kept secret!): <span class="shared-secret-value">${sharedSecret}</span>
+                        <br><br>
+                        Ciphertext to send: ${ciphertext}`;
                         resultElement.classList.add('success');
 
-                        // Habilitar el siguiente paso
+                        // Enable the next step and show payload in the field (same as sent to the server)
+                        document.getElementById('kyberCiphertextInput').value = ciphertext;
                         document.getElementById('sendCiphertextBtn').disabled = false;
                     }
-                    // Respuesta inesperada
+                    // Unexpected response
                     else {
-                        resultElement.innerHTML = `Error: Respuesta inesperada`;
+                        resultElement.innerHTML = `Error: Unexpected response`;
                         resultElement.classList.add('error');
-                        console.error('Respuesta inesperada:', data);
+                        console.error('Unexpected response:', data);
                     }
                 } catch (error) {
-                    resultElement.innerHTML = `Error de conexión: ${error.message}`;
+                    resultElement.innerHTML = `Connection error: ${error.message}`;
                     resultElement.classList.add('error');
-                    console.error('Error completo:', error);
+                    console.error('Full error:', error);
                 }
             });
 
-            // Enviar el ciphertext al servidor para que extraiga la clave compartida
+            // Send ciphertext to the server so it can decapsulate the shared secret
             document.getElementById('sendCiphertextBtn').addEventListener('click', async () => {
                 const resultElement = document.getElementById('sendSharedSecretResult');
 
-                if (!ciphertext) {
-                    resultElement.innerHTML = 'Error: No hay ciphertext disponible';
+                clearStep5Outputs();
+
+                const ciphertextPayload = document.getElementById('kyberCiphertextInput').value.trim();
+
+                if (!ciphertextPayload) {
+                    resultElement.innerHTML = 'Error: No ciphertext to send (complete step 2 first)';
                     resultElement.classList.add('error');
                     return;
                 }
 
+                ciphertext = ciphertextPayload;
+
                 try {
-                    // Enviamos el ciphertext al servidor
+                    // POST ciphertext to the server (body uses the textarea value)
                     const response = await fetch(getServerApiUrl('set_shared_secret'), getFetchOptions({
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json'
                         },
                         body: JSON.stringify({
-                            ciphertext: ciphertext
+                            ciphertext: ciphertextPayload
                         })
                     }));
                     const data = await response.json();
 
-                    console.log('Respuesta set_shared_secret:', data);
+                    console.log('set_shared_secret response:', data);
 
-                    // Si hay error, mostrarlo
+                    // If the API returned an error, show it
                     if (data.error) {
                         resultElement.innerHTML = `Error: ${data.error}`;
                         resultElement.classList.add('error');
                     }
-                    // Si hay mensaje de éxito, mostrarlo
+                    // If we got a shared_secret back, show it
                     else if (data.shared_secret) {
-                        resultElement.innerHTML = `Desencapsulado en el servidor:<br>
-                        <br>Clave compartida (secreta!): ${data.shared_secret}`;
+                        resultElement.innerHTML = `Decapsulated on the server:<br><br>
+                        Ciphertext received: ${ciphertext}<br><br>
+                        Shared secret decapsulated: (kept secret!) <span class="shared-secret-value">${data.shared_secret}</span>`;
                         resultElement.classList.add('success');
                         document.getElementById('encryptAndSendBtn').disabled = false;
                     }
-                    // Respuesta inesperada
+                    // Unexpected response
                     else {
-                        resultElement.innerHTML = `Error: Respuesta inesperada`;
+                        resultElement.innerHTML = `Error: Unexpected response`;
                         resultElement.classList.add('error');
-                        console.error('Respuesta inesperada:', data);
+                        console.error('Unexpected response:', data);
                     }
                 } catch (error) {
-                    resultElement.innerHTML = `Error de conexión: ${error.message}`;
+                    resultElement.innerHTML = `Connection error: ${error.message}`;
                     resultElement.classList.add('error');
-                    console.error('Error completo:', error);
+                    console.error('Full error:', error);
                 }
             });
 
-            // Cifrar mensaje en el servidor
+            // Encrypt in the user app backend (AES-GCM, /app/encrypt_message)
             document.getElementById('encryptAndSendBtn').addEventListener('click', async () => {
                 const resultElement = document.getElementById('encryptResult');
+
+                clearStep5Outputs();
+
                 const message = document.getElementById('messageInput').value;
 
                 if (!message) {
-                    resultElement.innerHTML = 'Por favor, ingrese un mensaje para cifrar.';
+                    resultElement.innerHTML = 'Please enter a message to encrypt.';
                     resultElement.classList.add('error');
                     return;
                 }
 
                 try {
-                    // Enviar mensaje al servidor para cifrarlo
-                    const response = await fetch(getClientApiUrl('encrypt_message'), getFetchOptions({
+                    // Call the user app encrypt endpoint with the plaintext
+                    const response = await fetch(getAppApiUrl('encrypt_message'), getFetchOptions({
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json'
@@ -375,42 +548,44 @@
                     }));
                     const data = await response.json();
 
-                    console.log('Respuesta encrypt_message:', data);
+                    console.log('encrypt_message response:', data);
 
-                    // Si hay error, mostrarlo
+                    // If the API returned an error, show it
                     if (data.error) {
                         resultElement.innerHTML = `Error: ${data.error}`;
                         resultElement.classList.add('error');
                     }
-                    // Si hay datos cifrados, mostrarlos
+                    // If we got ciphertext + IV (+ tag), show them
                     else if (data.encrypted_data && data.iv) {
-                        // Guardar datos cifrados para el paso de descifrado
+                        // Store ciphertext fields for the decrypt step
                         document.getElementById('encryptedData').value = data.encrypted_data;
                         document.getElementById('encryptionIv').value = data.iv;
                         document.getElementById('encryptionTag').value = data.tag;
 
-                        resultElement.innerHTML = `Mensaje cifrado por el cliente:<br>
-                        <br>Datos cifrados: ${data.encrypted_data}
-                        <br>IV: ${data.iv}`;
+                        resultElement.innerHTML = `Message encrypted on the client:<br>
+                        <br>Encrypted data: ${data.encrypted_data}
+                        <br>IV: ${data.iv}
+                        <br>Tag: ${data.tag}`;
+
                         resultElement.classList.add('success');
 
-                        // Habilitar el botón de descrifrado
+                        // Enable the decrypt button
                         document.getElementById('decryptBtn').disabled = false;
                     }
-                    // Respuesta inesperada
+                    // Unexpected response
                     else {
-                        resultElement.innerHTML = `Error: Respuesta inesperada`;
+                        resultElement.innerHTML = `Error: Unexpected response`;
                         resultElement.classList.add('error');
-                        console.error('Respuesta inesperada:', data);
+                        console.error('Unexpected response:', data);
                     }
                 } catch (error) {
                     resultElement.innerHTML = `Error: ${error.message}`;
                     resultElement.classList.add('error');
-                    console.error('Error completo:', error);
+                    console.error('Full error:', error);
                 }
             });
 
-            // Descrifrar mensaje en el servidor
+            // Decrypt message on the server
             document.getElementById('decryptBtn').addEventListener('click', async () => {
                 const resultElement = document.getElementById('decryptResult');
                 const encryptedData = document.getElementById('encryptedData').value;
@@ -418,13 +593,13 @@
                 const encryptionTag = document.getElementById('encryptionTag').value;
 
                 if (!encryptedData || !encryptionIv || !encryptionTag) {
-                    resultElement.innerHTML = 'Error: No hay datos descrifrados disponibles.';
+                    resultElement.innerHTML = 'Error: Fill in encrypted data, IV, and tag (run encrypt first).';
                     resultElement.classList.add('error');
                     return;
                 }
 
                 try {
-                    // Enviar datos cifrados para descifrarlos
+                    // POST ciphertext + IV + tag to the server decrypt endpoint
                     const response = await fetch(getServerApiUrl('decrypt_message'), getFetchOptions({
                         method: 'POST',
                         headers: {
@@ -438,29 +613,29 @@
                     }));
                     const data = await response.json();
 
-                    console.log('Respuesta decrypt_message:', data);
+                    console.log('decrypt_message response:', data);
 
-                    // Si hay error, mostrarlo
+                    // If the API returned an error, show it
                     if (data.error) {
                         resultElement.innerHTML = `Error: ${data.error}`;
                         resultElement.classList.add('error');
                     }
-                    // Si hay mensaje cifrado, mostrarlo
+                    // If we got plaintext back, show it
                     else if (data.message) {
-                        resultElement.innerHTML = `Mensaje descifrado por el servidor:<br>
-                        <br>Texto: ${data.message}`;
+                        resultElement.innerHTML = `Message decrypted on the server:<br>
+                        <br>Plaintext: ${data.message}`;
                         resultElement.classList.add('success');
                     }
-                    // Respuesta inesperada
+                    // Unexpected response
                     else {
-                        resultElement.innerHTML = `Error: Respuesta inesperada`;
+                        resultElement.innerHTML = `Error: Unexpected response`;
                         resultElement.classList.add('error');
-                        console.error('Respuesta inesperada:', data);
+                        console.error('Unexpected response:', data);
                     }
                 } catch (error) {
                     resultElement.innerHTML = `Error: ${error.message}`;
                     resultElement.classList.add('error');
-                    console.error('Error completo:', error);
+                    console.error('Full error:', error);
                 }
             });
         });

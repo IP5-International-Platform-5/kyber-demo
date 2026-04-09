@@ -1,40 +1,39 @@
 <?php
-# Depuración
-//error_log("get_public_key.php está siendo ejecutado!");
+// Debug (uncomment to trace in the PHP error log)
+//error_log("get_public_key.php running");
 
-# Incluir cabeceras CORS
+# Include CORS headers and path constants
 require_once __DIR__ . '/../api/cors_headers.php';
 require_once __DIR__ . '/config.php';
 
-# Endpoint para obtener la clave pública
+# Public key endpoint (JSON)
 header('Content-Type: application/json');
 
 require_once __DIR__ . '/../api/kyber_utils.php';
 
-# Método solo permitido: GET
+# Only GET allowed
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     http_response_code(405);
     response(json_encode([
-        'error' => 'Método no permitido. Use GET.'
+        'error' => 'Method not allowed. Use GET.'
     ]));
     exit;
 }
 
-# Obtener la clave pública
+# Obtain the public key
 $result = getPublicKey(PUBLIC_KEY_PATH);
-//error_log("Resultado de getPublicKey(): " . print_r($result, true));
+//error_log('getPublicKey() result: ' . print_r($result, true));
 
-# Si hay error, intentamos generar un nuevo par de claves
+# If missing, generate a new Kyber key pair and read the public key again
 if (isset($result['error'])) {
-    error_log("No se encontró clave pública, generando nuevo par de claves");
+    error_log("No public key found; generating new key pair");
     $generate_result = generateKyberKeypair(PUBLIC_KEY_PATH, PRIVATE_KEY_PATH);
 
-    # Si la generación tuvo éxito (no hay error), obtenemos la clave pública
     if (!isset($generate_result['error'])) {
-        error_log("Par de claves generado correctamente, obteniendo clave pública");
+        error_log("Key pair generated; reading public key");
         $result = getPublicKey(PUBLIC_KEY_PATH);
     } else {
-        # Si hubo error en la generación, lo devolvemos
+        # Return generation error to the client
         $result = $generate_result;
     }
 }
