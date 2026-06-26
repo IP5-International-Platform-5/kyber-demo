@@ -2,6 +2,7 @@ node_modules
 .git
 .gitmodules
 dist
+logs
 *.log
 .env
 .env.*

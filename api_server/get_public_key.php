@@ -3,13 +3,13 @@
 //error_log("get_public_key.php running");
 
 # Include CORS headers and path constants
-require_once __DIR__ . '/../api/cors_headers.php';
+require_once __DIR__ . '/cors_headers.php';
 require_once __DIR__ . '/config.php';
 
 # Public key endpoint (JSON)
 header('Content-Type: application/json');
 
-require_once __DIR__ . '/../api/kyber_utils.php';
+require_once __DIR__ . '/../libs/kyber_utils.php';
 
 # Only GET allowed
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') {

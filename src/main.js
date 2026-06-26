@@ -22,7 +22,9 @@ if (document.querySelector('#app')) {
       </p>
       <p>
         <a href="/demo" class="cta">Open the interactive demo</a>
-        — same browser, two logical roles, every step visible from keygen to decrypt.
+      </p>
+      <p>
+        same browser, two logical roles, every step visible from keygen to decrypt.
       </p>
       <p class="meta">
         API surface: <code>/app</code> and <code>/api_server</code> · details in the README.

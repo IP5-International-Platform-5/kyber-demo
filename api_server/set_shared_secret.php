@@ -1,12 +1,12 @@
 <?php
 # Include CORS headers and path constants
-require_once __DIR__ . '/../api/cors_headers.php';
+require_once __DIR__ . '/cors_headers.php';
 require_once __DIR__ . '/config.php';
 
 # Accept Kyber ciphertext and store derived shared secret
 header('Content-Type: application/json');
 
-require_once __DIR__ . '/../api/kyber_utils.php';
+require_once __DIR__ . '/../libs/kyber_utils.php';
 
 # Only POST allowed
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
