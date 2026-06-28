@@ -7,6 +7,8 @@ const proxyTarget =
   process.env.VITE_DEV_PROXY_TARGET ||
   `http://localhost:${apiServerPort}`;
 
+const isDockerDev = Boolean(process.env.VITE_DOCKER_DEV);
+
 // Shared proxy for `vite dev` and `vite preview` so /app and /api_server hit PHP instead of index.html
 const apiProxy = {
   '/app': {
@@ -46,8 +48,27 @@ const apiProxy = {
   }
 };
 
+/** /demo -> demo.html (same as Nginx / .htaccess) */
+function demoRoutePlugin() {
+  return {
+    name: 'kyber-demo-route',
+    configureServer(server) {
+      server.middlewares.use((req, _res, next) => {
+        const url = req.url?.split('?')[0] ?? '';
+        if (url === '/demo' || url === '/demo/') {
+          const qs = req.url?.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+          req.url = `/demo.html${qs}`;
+        }
+        next();
+      });
+    }
+  };
+}
+
 export default defineConfig({
   base: '/',
+
+  plugins: [demoRoutePlugin()],
 
   // Production bundle (includes demo.html as a second entry)
   build: {
@@ -61,14 +82,18 @@ export default defineConfig({
     }
   },
 
-  // Dev server: proxies API calls to PHP to avoid browser CORS during local work
+  // Dev server: proxies API calls to PHP; serves source files — refresh manually (F5)
   server: {
     port: 5173,
     host: '0.0.0.0',
     proxy: apiProxy,
     cors: true,
-    // Docker volumes on Windows may not trigger inotify; polling avoids manual restarts
-    watch: process.env.VITE_DOCKER_DEV ? { usePolling: true } : undefined
+    hmr: false,
+    headers: {
+      'Cache-Control': 'no-store'
+    },
+    // Docker bind mounts (esp. Windows) may miss file events without polling
+    watch: isDockerDev ? { usePolling: true, interval: 300 } : undefined
   },
 
   // `vite preview` uses the same API proxy as dev

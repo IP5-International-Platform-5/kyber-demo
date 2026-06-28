@@ -143,6 +143,7 @@ URLs depend on your setup — see [SETUP-DOCKER.md](SETUP-DOCKER.md) (port **808
 
 ## Development
 
+While editing, use **`npm run docker:dev`** or **`npm run dev` / `npm run full`** (Linux) — Vite serves `src/main.js` and HTML from disk; **F5** shows changes. Plain **`docker compose up`** on **8080** serves a built `dist/` and will **not** reflect `main.js` edits until you rebuild **web**.
 
 | Command            | Description                                                            |
 | ------------------ | ---------------------------------------------------------------------- |

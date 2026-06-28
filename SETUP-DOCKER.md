@@ -106,21 +106,30 @@ Definitions: `docker-compose.yml`, `docker/php/Dockerfile`, `docker/nginx/Docker
 
 | Port     | Use                                                            |
 | -------- | -------------------------------------------------------------- |
-| **8080** | App via Nginx (static front from the image build).             |
-| **5173** | Vite dev server only when using the `dev` profile (see below). |
+| **8080** | With **`docker:dev`**: Nginx proxies the front to Vite (live `src/`). With **`docker:up`** only: static `dist/` from the image. |
+| **5173** | Vite directly when using the **`dev`** profile (same live front). |
 
 
 
 
 ## Hot-reload front (`dev` profile)
 
-To edit `src/`, `index.html`, or `demo.html` without rebuilding the **web** image:
+**With `npm run docker:dev`**, both **8080** and **5173** serve the front from Vite (edits to `src/main.js`, `index.html`, `demo.html` → **F5**). Without the dev profile, **8080** serves baked `dist/` and needs a **web** rebuild for front changes.
+
+For day-to-day work (front **and** PHP API, refresh with **F5** only):
 
 ```bash
 npm run docker:dev
 ```
 
-Open **[http://localhost:5173](http://localhost:5173)** (not 8080). Vite proxies `/app` and `/api_server` to the **web** container; PHP code is still served from the mounted repo via **php**.
+Open **[http://localhost:5173](http://localhost:5173)** or **[http://localhost:8080](http://localhost:8080)** — both hit Vite in dev mode (not the baked `dist/`). Demo: **`/demo`**.
+
+| What you change | What happens |
+|-----------------|--------------|
+| `src/`, `index.html`, `demo.html` | Vite serves the files from disk; **F5** shows edits (no auto-reload). |
+| `app/`, `api_server/`, `libs/` | PHP-FPM reads the mounted repo; **OPcache is off** in dev — **F5** runs the new code. |
+
+Vite proxies `/app` and `/api_server` to the **web** container → PHP-FPM.
 
 ## npm scripts
 
@@ -162,6 +171,6 @@ Then open **[http://localhost:8080/demo](http://localhost:8080/demo)**.
 | 8080 connection refused   | `docker compose ps`; **web** container up and port not in use.                                                                     |
 | API 502 / empty response  | **php** container running; logs: `docker compose logs php`.                                                                        |
 | Decrypt fails in demo     | Stale `shared_secret.key` in `app/keys` and `api_server/keys` — delete both and rerun from step 1.                                 |
-| Front changes not on 8080 | Rebuild **web** or use `docker:dev` on 5173.                                                                                       |
+| Front changes not on 8080 | Use **`npm run docker:dev`** (not plain `docker compose up`). Hard-refresh (Ctrl+Shift+R) if the browser cached old assets. |
 
 

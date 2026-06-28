@@ -95,7 +95,7 @@ chmod +x run-full.sh
 ./run-full.sh
 ```
 
-This starts `php -S 0.0.0.0:8000` on the repo root and Vite on **5173**. Open **http://localhost:5173** (demo at `/demo`).
+This starts `php -S 0.0.0.0:8000` on the repo root and Vite on **5173**. Open **http://localhost:5173** (demo at `/demo`). Edit front or PHP under `app/`, `api_server/`, or `libs/` and refresh with **F5**.
 
 **Manual equivalent:**
 
