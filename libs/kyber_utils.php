@@ -230,9 +230,8 @@ function encryptMessage($message, $shared_secret_path) {
 /**
  * Decrypt a message using the shared secret.
  *
- * @param string $encrypted_data Ciphertext (base64)
- * @param string $iv Initialization vector (base64)
- * @param string $tag Authentication tag (base64)
+ * @param array $data Payload with the base64 fields: encrypted_data, iv, tag
+ * @param string $shared_secret_path Path to the stored shared secret (base64)
  * @return array Operation result: [message => string] or [error => string]
  */
 function decryptMessage($data, $shared_secret_path) {
