@@ -16,7 +16,10 @@
         "ext-oqsphp": "Extensión liboqs-php (open-quantum-safe) que provee OQS_KEYENCAPSULATION con Kyber/ML-KEM."
     },
     "config": {
-        "sort-packages": true
+        "sort-packages": true,
+        "platform": {
+            "php": "8.1"
+        }
     },
     "scripts": {
         "sintaxis": "find api_server app libs public -name '*.php' -print0 | xargs -0 -n1 -P4 php -l > /dev/null",

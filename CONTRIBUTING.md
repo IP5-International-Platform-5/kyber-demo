@@ -50,6 +50,12 @@ Comandos disponibles:
 | `npm run build`           | Compila el front con Vite.                              |
 | `npm run docker:up`       | Levanta la demo completa en Docker.                     |
 
+`composer.json` fija `config.platform.php` a **8.1**, que es el mínimo que
+declara el proyecto. Sin eso, quien tenga PHP 8.5 genera un `composer.lock` con
+dependencias que exigen PHP 8.4+, y el `composer install` revienta en cualquier
+máquina con una versión menor —incluida la CI—. Si subes el mínimo de PHP,
+cámbialo en los dos sitios.
+
 ### Deuda pendiente de formato
 
 El código PHP de este repositorio se escribió con tabuladores y sin tipado
