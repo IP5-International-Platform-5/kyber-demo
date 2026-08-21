@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+#
+# Impide hacer push directo a la rama principal.
+#
+# En este repositorio la rama principal YA está protegida en GitHub (es público,
+# así que la protección de ramas está disponible). Este hook duplica esa regla
+# en local para dar el aviso al instante, antes de gastar un viaje al servidor.
+# Ver CONTRIBUTING.md, sección "Ajustes del repositorio en GitHub".
+#
+# Se instala con ./scripts/instalar-hooks.sh (configura core.hooksPath).
+#
+# Para saltárselo en una urgencia real:
+#     PERMITIR_PUSH_A_PRINCIPAL=1 git push
+#
+# Un hook local NO es una garantía: solo protege a quien lo tiene instalado.
+
+set -uo pipefail
+
+RAMA_PRINCIPAL='main'
+
+rojo()    { printf '\033[0;31m%s\033[0m\n' "$1" >&2; }
+amarillo() { printf '\033[0;33m%s\033[0m\n' "$1" >&2; }
+
+# Git pasa por stdin una línea por referencia:
+#   <ref local> <sha local> <ref remota> <sha remota>
+while read -r ref_local sha_local ref_remota _sha_remota; do
+
+    # Borrado de rama: sha local todo ceros. No nos metemos.
+    [[ "$sha_local" =~ ^0+$ ]] && continue
+
+    if [[ "$ref_remota" == "refs/heads/$RAMA_PRINCIPAL" ]]; then
+        if [[ "${PERMITIR_PUSH_A_PRINCIPAL:-}" == '1' ]]; then
+            amarillo "AVISO: push directo a '$RAMA_PRINCIPAL' permitido explícitamente."
+            continue
+        fi
+
+        rojo ''
+        rojo "  Push directo a '$RAMA_PRINCIPAL' bloqueado."
+        rojo ''
+        rojo '  Todo cambio entra por pull request. Para mover este trabajo a una rama:'
+        rojo ''
+        rojo "      git switch -c feat/<nº-issue>-<descripcion>"
+        rojo "      git push -u origin feat/<nº-issue>-<descripcion>"
+        rojo '      gh pr create --fill --web'
+        rojo ''
+        rojo '  Si de verdad hace falta saltárselo:  PERMITIR_PUSH_A_PRINCIPAL=1 git push'
+        rojo ''
+
+        exit 1
+    fi
+
+    # Aviso (no bloquea) si el nombre de rama no sigue la convención.
+    rama="${ref_remota#refs/heads/}"
+    patron='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)/[0-9]+-[a-z0-9-]+$'
+
+    if ! printf '%s' "$rama" | grep -Eq "$patron"; then
+        amarillo ''
+        amarillo "  AVISO: la rama '$rama' no sigue la convención del proyecto."
+        amarillo '  Formato esperado:  <tipo>/<nº de issue>-<descripcion-en-kebab-case>'
+        amarillo '  Ejemplo:           feat/42-derivar-clave-con-hkdf'
+        amarillo '  (esto no bloquea el push)'
+        amarillo ''
+    fi
+done
+
+exit 0

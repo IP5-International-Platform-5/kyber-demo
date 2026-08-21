@@ -169,3 +169,23 @@ This repository is a **proof of concept**: educational and demonstrative, **not*
 3. Proper protection for keys at rest.
 4. Key rotation policies.
 
+
+## Contributing
+
+Development workflow, branching model and pull request rules:
+[CONTRIBUTING.md](CONTRIBUTING.md). Code style and file formatting:
+[docs/guia-de-estilo.md](docs/guia-de-estilo.md). Security policy:
+[SECURITY.md](SECURITY.md).
+
+Both documents are written in Spanish, which is the working language of the
+project. Quick start:
+
+```bash
+composer install && npm install
+composer verificar    # syntax, style and static analysis
+npm run formato       # front-end formatting
+```
+
+The protocol itself is defined by the reference implementation,
+[ip5-kyber-poc](https://github.com/IP5-International-Platform-5/ip5-kyber-poc);
+this repository follows it.
