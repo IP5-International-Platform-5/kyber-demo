@@ -304,12 +304,30 @@ Las crea `scripts/configurar-github.sh`:
 
 ## 7. Coordinación entre repositorios
 
-- **`ip5-kyber-poc`** — implementación de referencia en PHP. Define el protocolo.
-- **`kyber-demo`** — esta demo interactiva. Lo implementa y lo enseña.
+| Repositorio | Papel |
+| ----------- | ----- |
+| [`qslp`](https://github.com/IP5-International-Platform-5/qslp) | **Especificación normativa QSLP/1.** Fija el protocolo. |
+| [`ip5-kyber-poc`](https://github.com/IP5-International-Platform-5/ip5-kyber-poc) | Implementación de referencia en PHP. |
+| **`kyber-demo`** | Esta demo interactiva. Implementa el protocolo y lo enseña. |
+| `kyber-contexto` | Correspondencia y contexto. **Privado**, con datos de terceros. |
 
-Si un cambio afecta al formato en el cable: se abre el issue en **los dos**
-repositorios y se enlazan entre sí
-(`IP5-International-Platform-5/ip5-kyber-poc#12`). El de referencia va primero.
+Más el repositorio [`.github`](https://github.com/IP5-International-Platform-5/.github),
+que define el protocolo de trabajo común. Este documento prevalece sobre aquel.
+
+Si un cambio afecta al formato en el cable, el issue va **primero en `qslp`**
+(`IP5-International-Platform-5/qslp#12`) y aquí se abre uno enlazado.
+
+> **Estado de conformidad.** Esta demo **no es conforme con QSLP/1**. La §18 de
+> la especificación es explícita: `libs/kyber_utils.php` **se retira**, porque
+> las claves persistentes y devolver secretos en las respuestas son
+> incompatibles con el protocolo. Y sus pasos 1 a 3 —unificar binding y
+> algoritmo, suprimir secretos de logs y respuestas, y pasar a claves efímeras—
+> **deben ejecutarse antes de cualquier demostración pública**. Este
+> repositorio ya es público, así que esas correcciones no son deuda a futuro:
+> son lo siguiente.
+
+Nunca copies material de `kyber-contexto` a un issue, un PR o un fichero de
+este repositorio: contiene datos personales de terceros.
 
 ---
 
