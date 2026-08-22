@@ -1,0 +1,75 @@
+name: Error
+description: Algo no funciona como debería.
+title: 'fix: '
+labels: ['tipo: error']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ⚠️ **Si el fallo tiene implicaciones de seguridad** (se filtra una clave,
+        un secreto acaba en un log, se puede reutilizar un IV, se puede
+        descifrar sin la clave), **no lo publiques aquí**: usa un aviso privado
+        de seguridad. Ver `SECURITY.md`.
+
+  - type: textarea
+    id: que-pasa
+    attributes:
+      label: Qué ocurre
+      description: El comportamiento observado, sin interpretarlo todavía.
+    validations:
+      required: true
+
+  - type: textarea
+    id: que-deberia
+    attributes:
+      label: Qué debería ocurrir
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproducir
+    attributes:
+      label: Cómo reproducirlo
+      description: Pasos exactos, incluidos los comandos.
+      value: |
+        1. `npm run docker:up` (o `npm run dev`)
+        2. Abrir http://localhost:8080/demo
+        3. …
+    validations:
+      required: true
+
+  - type: textarea
+    id: salida
+    attributes:
+      label: Salida, traza o respuesta del servidor
+      description: >-
+        Se formatea como bloque de código automáticamente.
+        **Revisa antes de pegar que no haya claves, secretos compartidos ni
+        ciphertext reales.** Sustitúyelos por `<redactado>`.
+      render: text
+
+  - type: textarea
+    id: entorno
+    attributes:
+      label: Entorno
+      value: |
+        - Cómo se ejecuta: Docker / nginx local / `npm run dev`
+        - PHP: `php -v`
+        - oqsphp: sí / no · versión
+        - Algoritmo KEM: Kyber1024 / otro
+        - Navegador y versión:
+        - SO:
+    validations:
+      required: true
+
+  - type: dropdown
+    id: gravedad
+    attributes:
+      label: Gravedad
+      options:
+        - 'Baja: cosmético o poco frecuente'
+        - 'Media: molesta pero hay forma de sortearlo'
+        - 'Alta: bloquea el flujo principal'
+        - 'Crítica: corrupción de datos o pérdida de la garantía criptográfica'
+    validations:
+      required: true

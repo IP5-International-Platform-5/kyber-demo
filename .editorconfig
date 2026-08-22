@@ -1,0 +1,32 @@
+# Formato de ficheros del proyecto. Ver docs/guia-de-estilo.md
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+# Ecosistema web y ficheros de configuración: 2 espacios
+[*.{js,mjs,cjs,ts,json,jsonc,yml,yaml,css,scss,html,htm,vue}]
+indent_size = 2
+
+# En Markdown los dos espacios finales son un salto de línea significativo
+[*.md]
+trim_trailing_whitespace = false
+
+[{Makefile,Dockerfile*}]
+indent_style = space
+indent_size = 2
+
+[*.{conf,ini}]
+indent_size = 4
+
+# Terceros, submódulos y generados: no los tocamos
+[{vendor,node_modules,dist,liboqs-php}/**]
+indent_style = unset
+indent_size = unset
+trim_trailing_whitespace = unset
+insert_final_newline = unset

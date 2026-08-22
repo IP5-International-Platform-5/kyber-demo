@@ -1,6 +1,7 @@
 # Dependencies and build output
 node_modules
 dist
+vendor/
 
 # Logs
 logs
@@ -26,6 +27,7 @@ api_server/keys/
 *.a
 
 # Editor
+.claude/settings.local.json
 .vscode/*
 !.vscode/extensions.json
 .idea
@@ -33,3 +35,11 @@ api_server/keys/
 
 # Personal scripts and config (not part of the PoC)
 custom/
+
+# Tool caches
+.php-cs-fixer.cache
+.phpunit.result.cache
+.phpunit.cache/
+
+# PHP session dumps
+sess_*

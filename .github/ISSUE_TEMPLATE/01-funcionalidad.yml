@@ -1,0 +1,65 @@
+name: Nueva funcionalidad
+description: Proponer una capacidad que el proyecto todavía no tiene.
+title: 'feat: '
+labels: ['tipo: funcionalidad']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Deja el prefijo `feat:` en el título y añade una descripción corta en
+        minúscula, p. ej. `feat: mostrar el ciphertext en hexadecimal`.
+
+  - type: textarea
+    id: problema
+    attributes:
+      label: Problema o necesidad
+      description: Qué no se puede hacer hoy, y por qué importa. No describas aún la solución.
+      placeholder: |
+        La demo enseña el secreto compartido en base64, que no dice nada a
+        quien la está viendo por primera vez. Falta una vista que enseñe los
+        bytes y las longitudes de cada paso del handshake.
+    validations:
+      required: true
+
+  - type: textarea
+    id: propuesta
+    attributes:
+      label: Propuesta
+      description: Qué comportamiento concreto debería existir.
+    validations:
+      required: true
+
+  - type: textarea
+    id: criterios
+    attributes:
+      label: Criterios de aceptación
+      description: >-
+        Lista comprobable. El PR que cierre este issue debe cumplirlos todos,
+        y la revisión se hace contra esta lista.
+      value: |
+        - [ ]
+        - [ ]
+        - [ ] Documentado en el README si cambia el uso
+    validations:
+      required: true
+
+  - type: dropdown
+    id: protocolo
+    attributes:
+      label: ¿Afecta al protocolo en el cable?
+      description: >-
+        Cambiar el formato JSON, los nombres de endpoint, el handshake o la
+        política de rekey rompe la interoperabilidad con ip5-kyber-poc, que es
+        la implementación de referencia. Requiere acuerdo previo de diseño.
+      options:
+        - 'No: solo afecta al código interno'
+        - 'Sí: cambia el formato de mensajes o el handshake'
+        - No estoy seguro
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternativas
+    attributes:
+      label: Alternativas consideradas
+      description: Opcional. Qué otras vías se descartaron y por qué.

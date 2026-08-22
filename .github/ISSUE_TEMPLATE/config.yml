@@ -1,0 +1,22 @@
+# Obliga a usar una de las plantillas: nada de issues en blanco.
+blank_issues_enabled: false
+
+contact_links:
+  - name: Vulnerabilidad de seguridad
+    url: https://github.com/IP5-International-Platform-5/kyber-demo/security/advisories/new
+    about: >-
+      NO abras un issue público para un fallo de seguridad. Usa un aviso
+      privado (security advisory). Ver SECURITY.md.
+
+  - name: Implementación de referencia del protocolo
+    url: https://github.com/IP5-International-Platform-5/ip5-kyber-poc
+    about: >-
+      El formato de trama, el handshake y la política de rekey los define
+      ip5-kyber-poc. Si el problema es del protocolo y no de esta demo, el
+      issue va allí.
+
+  - name: Problema con liboqs-php
+    url: https://github.com/Muzosh/liboqs-php/issues
+    about: >-
+      El submódulo liboqs-php es de terceros. Los fallos de la extensión se
+      reportan en su propio repositorio, no aquí.
