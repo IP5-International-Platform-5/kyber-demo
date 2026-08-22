@@ -309,7 +309,6 @@ Las crea `scripts/configurar-github.sh`:
 | [`qslp`](https://github.com/IP5-International-Platform-5/qslp) | **Especificación normativa QSLP/1.** Fija el protocolo. |
 | [`ip5-kyber-poc`](https://github.com/IP5-International-Platform-5/ip5-kyber-poc) | Implementación de referencia en PHP. |
 | **`kyber-demo`** | Esta demo interactiva. Implementa el protocolo y lo enseña. |
-| `kyber-contexto` | Correspondencia y contexto. **Privado**, con datos de terceros. |
 
 Más el repositorio [`.github`](https://github.com/IP5-International-Platform-5/.github),
 que define el protocolo de trabajo común. Este documento prevalece sobre aquel.
@@ -326,8 +325,10 @@ Si un cambio afecta al formato en el cable, el issue va **primero en `qslp`**
 > repositorio ya es público, así que esas correcciones no son deuda a futuro:
 > son lo siguiente.
 
-Nunca copies material de `kyber-contexto` a un issue, un PR o un fichero de
-este repositorio: contiene datos personales de terceros.
+La correspondencia con las partes y el material con datos personales se
+guardan fuera de la organización, en un archivo privado aparte. **Este
+repositorio es público:** no traigas nada de allí a un issue, a un PR ni a un
+fichero, ni siquiera parafraseado.
 
 ---
 
