@@ -41,9 +41,9 @@ try {
         exit;
     }
 
-    # Return derived secret as base64 (demo visibility only)
+    # Return only the fingerprint: the derived secret never goes back on the wire
     $json_response = json_encode([
-        'shared_secret' => base64_encode($result['shared_secret'])
+        'secret_fingerprint' => $result['secret_fingerprint']
     ]);
 
     if ($json_response === false) {

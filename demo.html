@@ -254,7 +254,7 @@
         document.addEventListener('DOMContentLoaded', () => {
             // Global variables for this script
             let serverPublicKey = null;
-            let sharedSecret = null;
+            let secretFingerprint = null;
             let ciphertext = null;
 
             // Get the API base URL
@@ -358,7 +358,7 @@
                 clearStep5Outputs();
                 document.getElementById('encryptAndSendBtn').disabled = true;
                 ciphertext = null;
-                sharedSecret = null;
+                secretFingerprint = null;
                 serverPublicKey = null;
 
                 try {
@@ -404,7 +404,7 @@
                 clearStep5Outputs();
                 document.getElementById('encryptAndSendBtn').disabled = true;
                 ciphertext = null;
-                sharedSecret = null;
+                secretFingerprint = null;
 
                 const publicKeyPayload = document.getElementById('encapsulatePublicKeyInput').value.trim();
 
@@ -436,13 +436,13 @@
                         resultElement.innerHTML = `Error: ${data.error}`;
                         resultElement.classList.add('error');
                     }
-                    // If we got ciphertext and shared_secret, keep them
-                    else if (data.ciphertext && data.shared_secret) {
+                    // If we got ciphertext and the fingerprint, keep them
+                    else if (data.ciphertext && data.secret_fingerprint) {
                         ciphertext = data.ciphertext;
-                        sharedSecret = data.shared_secret;
+                        secretFingerprint = data.secret_fingerprint;
 
                         resultElement.innerHTML = `Created and encapsulated on the client:<br><br>
-                        New shared secret to encapsulate (kept secret!): <span class="shared-secret-value">${sharedSecret}</span>
+                        Shared secret fingerprint (the secret itself never leaves the backend): <span class="shared-secret-value">${secretFingerprint}</span>
                         <br><br>
                         Ciphertext to send: ${ciphertext}`;
                         resultElement.classList.add('success');
@@ -500,11 +500,15 @@
                         resultElement.innerHTML = `Error: ${data.error}`;
                         resultElement.classList.add('error');
                     }
-                    // If we got a shared_secret back, show it
-                    else if (data.shared_secret) {
+                    // If we got the fingerprint back, compare it with the client's
+                    else if (data.secret_fingerprint) {
+                        const agree = data.secret_fingerprint === secretFingerprint;
+
                         resultElement.innerHTML = `Decapsulated on the server:<br><br>
                         Ciphertext received: ${ciphertext}<br><br>
-                        Shared secret decapsulated: (kept secret!) <span class="shared-secret-value">${data.shared_secret}</span>`;
+                        Server fingerprint: <span class="shared-secret-value">${data.secret_fingerprint}</span><br>
+                        Client fingerprint: <span class="shared-secret-value">${secretFingerprint}</span><br><br>
+                        ${agree ? 'Both ends derived the same secret.' : 'The fingerprints differ: the key exchange did not agree.'}`;
                         resultElement.classList.add('success');
                         document.getElementById('encryptAndSendBtn').disabled = false;
                     }

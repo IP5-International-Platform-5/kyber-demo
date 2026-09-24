@@ -63,11 +63,27 @@ function getPublicKey($public_key_path) {
 }
 
 /**
+ * Fingerprint of a shared secret, for display only.
+ *
+ * Lets both ends check that they derived the same secret without either of them
+ * sending it. Truncated and domain-separated on purpose: it identifies the
+ * session, it does not reconstruct the key.
+ *
+ * @param string $shared_secret Raw shared secret (binary)
+ * @return string 16 hex characters, grouped in fours for visual comparison
+ */
+function secretFingerprint($shared_secret) {
+	$digest = hash('sha3-256', 'kyber-demo fingerprint v1' . $shared_secret, true);
+
+	return implode(' ', str_split(bin2hex(substr($digest, 0, 8)), 4));
+}
+
+/**
  * Encapsulate a shared secret using the remote public key.
  *
  * @param string $remote_public_key Remote public key (base64)
  * @param string $shared_secret_path Path to save the shared secret
- * @return array Operation result: [ciphertext => string, shared_secret => string] or [error => string]
+ * @return array Operation result: [ciphertext => string, secret_fingerprint => string] or [error => string]
  */
 function encapsulateSharedSecret($remote_public_key, $shared_secret_path) {
 	try {
@@ -99,10 +115,11 @@ function encapsulateSharedSecret($remote_public_key, $shared_secret_path) {
 		# Persist for AES-GCM step
 		file_put_contents($shared_secret_path, base64_encode($shared_secret));
 
-		# Return ciphertext and shared secret (demo only)
+		# The shared secret never leaves the backend: only its fingerprint, which
+		# lets the demo show that both ends agree without transmitting the key.
 		return [
 			'ciphertext' => base64_encode($ciphertext),
-			'shared_secret' => base64_encode($shared_secret)
+			'secret_fingerprint' => secretFingerprint($shared_secret)
 		];
 	} catch (Exception $e) {
 		return [
@@ -149,7 +166,7 @@ function decapsulateSharedSecret($ciphertext, $private_key_path, $shared_secret_
 		file_put_contents($shared_secret_path, base64_encode($shared_secret));
 
 		return [
-			'shared_secret' => $shared_secret
+			'secret_fingerprint' => secretFingerprint($shared_secret)
 		];
 	} catch (Exception $e) {
 		return [
