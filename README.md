@@ -8,6 +8,7 @@ Key exchange and message encryption using **ML-KEM-768** (FIPS 203, the standard
 
 ## Table of contents
 
+- [Entorno de trabajo](#entorno-de-trabajo)
 - [Installation](#installation)
 - [Architecture](#architecture)
 - [API (endpoints)](#api-endpoints)
@@ -17,6 +18,73 @@ Key exchange and message encryption using **ML-KEM-768** (FIPS 203, the standard
 - [Security](#security)
 
 
+
+## Entorno de trabajo
+
+**El entorno de referencia es el contenedor, no tu máquina.** La demo solo se
+ejecuta dentro de Docker, porque necesita la extensión `oqsphp`, que no se
+instala con el gestor de paquetes de ninguna distribución.
+
+| Componente | Versión fijada | Dónde se fija |
+| ---------- | -------------- | ------------- |
+| PHP (ejecución) | 8.4 | `docker/php/Dockerfile`, imagen fijada por digest |
+| PHP (mínimo soportado) | 8.1 | `composer.json`: `require.php` y `config.platform.php` |
+| liboqs | 0.16.0 | `docker/php/Dockerfile`, `ARG LIBOQS_TAG` |
+| oqsphp (binding) | commit `8f929d2` | submódulo `liboqs-php` |
+| Node | 20 | `.nvmrc`, `engines` de `package.json` e imágenes por digest |
+| Nginx | `alpine` | `docker/nginx/Dockerfile`, imagen fijada por digest |
+| Algoritmo KEM | ML-KEM-768 (FIPS 203) | constante `KEM_ALG` en `libs/kyber_utils.php` |
+
+### Qué hace falta en local
+
+| Herramienta | Para qué | Instalación en Arch/Manjaro |
+| ----------- | -------- | --------------------------- |
+| Docker + Compose | Ejecutar la demo. Es lo único imprescindible | `sudo pacman -S docker docker-compose` |
+| PHP 8.x | `php -l` y las herramientas de estilo. **No ejecuta la demo** | `sudo pacman -S php` |
+| Composer | Dependencias de desarrollo | `sudo pacman -S composer` |
+| Node 20 | Solo si tocas el front fuera del contenedor | `nvm use` |
+
+`docker compose` es un plugin del cliente de Docker: si `docker compose version`
+responde «unknown command», falta el paquete `docker-compose`, aunque el demonio
+esté funcionando.
+
+La extensión `sodium` hará falta para la zeroización de material de clave. El
+módulo viene con PHP pero llega desactivado: hay que descomentar
+`extension=sodium` en `/etc/php/php.ini`.
+
+### Por qué por digest y no por etiqueta
+
+Una etiqueta como `php:8.4-fpm-bookworm` cambia de contenido sin cambiar de
+nombre, y el guion de compilación de `liboqs-php` clonaba la rama `main` de
+liboqs. Con las dos cosas juntas, dos compilaciones en fechas distintas podían
+traer conjuntos de algoritmos distintos: en liboqs 0.15.0 desapareció Dilithium
+y en 0.16.0, SPHINCS+. Para un proyecto que aspira a que sus registros tengan
+valor probatorio, no poder decir con qué código se generó una firma es un
+defecto, no una molestia.
+
+La contrapartida es real: **fijar por digest congela también las actualizaciones
+de seguridad de la imagen base**. Conviene revisarlas una vez al mes, y ante
+cualquier aviso, en un commit propio que diga qué sube y por qué:
+
+```bash
+docker pull php:8.4-fpm-bookworm
+docker inspect --format '{{index .RepoDigests 0}}' php:8.4-fpm-bookworm
+```
+
+### Lo que todavía no está fijado
+
+- Los *runners* de la CI usan `ubuntu-latest`, que es una etiqueta móvil, y las
+  acciones se fijan por versión mayor (`actions/checkout@v4`), no por commit.
+- `composer.json` y `composer.lock` reales viven en la rama del protocolo, sin
+  mezclar: en `main` el `composer.json` está vacío.
+- `package-lock.json` no concuerda hoy con `package.json`, así que `npm ci`
+  —y por tanto la imagen de Nginx— no compila hasta regenerarlo.
+- **Node 20 llegó a su fin de vida el 30 de abril de 2026** y ya no recibe
+  parches de seguridad. Las imágenes fijadas aquí son de abril de 2026, que es
+  exactamente cuando dejaron de reconstruirse. Están fijadas para que la
+  compilación sea reproducible, no porque sean las adecuadas: hay que subir a
+  Node 24, que es la LTS activa. Vite 6 lo admite, así que el cambio es
+  acotado, pero toca la compilación del front y merece su propio commit.
 
 ## Installation
 
