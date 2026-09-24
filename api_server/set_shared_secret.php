@@ -60,6 +60,6 @@ try {
 }
 
 function response($body) {
-    log_request("RESPONSE: {$body}");
+    log_response($body);
     echo $body;
 }
