@@ -1,13 +1,20 @@
 <?php
+
+# Both ends must agree on the KEM, so it is declared once, here, and not at each
+# call site. ML-KEM-768 (FIPS 203) is the standard; "Kyber768" and "Kyber1024"
+# are pre-standard names liboqs still ships, and they do NOT interoperate with it.
+if (!defined('KEM_ALG')) {
+	define('KEM_ALG', 'ML-KEM-768');
+}
 /**
  * Generate a Kyber key pair and save it to files.
  *
  * @param string $public_key_path Path to write the public key
  * @param string $private_key_path Path to write the private key
- * @param string $algorithm Kyber algorithm (default "Kyber1024")
+ * @param string $algorithm Kyber algorithm (default KEM_ALG)
  * @return array Operation result: [public_key => string, ...] or [error => string]
  */
-function generateKyberKeypair($public_key_path, $private_key_path, $algorithm = "Kyber1024") {
+function generateKyberKeypair($public_key_path, $private_key_path, $algorithm = KEM_ALG) {
 	try {
 		# Skip OQS_KEM_alg_is_enabled; create the KEM directly (avoids edge-case failures on some builds)
 		try {
@@ -101,7 +108,7 @@ function encapsulateSharedSecret($remote_public_key, $shared_secret_path) {
 			];
 		}
 
-		$kem = new OQS_KEYENCAPSULATION("Kyber1024");
+		$kem = new OQS_KEYENCAPSULATION(KEM_ALG);
 
 		# Encapsulate: ciphertext + shared secret (binary)
 		$status = $kem->encapsulate($ciphertext, $shared_secret, $public_key);
@@ -152,7 +159,7 @@ function decapsulateSharedSecret($ciphertext, $private_key_path, $shared_secret_
 
 		$private_key = base64_decode(file_get_contents($private_key_path));
 
-		$kem = new OQS_KEYENCAPSULATION("Kyber1024");
+		$kem = new OQS_KEYENCAPSULATION(KEM_ALG);
 
 		# Decapsulate to the same shared secret the client derived
 		$status = $kem->decapsulate($shared_secret, $binary_ciphertext, $private_key);

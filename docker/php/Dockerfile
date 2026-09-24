@@ -16,6 +16,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /build/liboqs-php
 COPY liboqs-php/ .
+# build.sh clona la rama main de liboqs, así que dos compilaciones en fechas
+# distintas pueden traer conjuntos de algoritmos distintos: en 0.15.0 desapareció
+# Dilithium y en 0.16.0 SPHINCS+. Fijar la etiqueta es un requisito forense
+# (QSLP/1 §19.8), no higiene. build.sh respeta LIBOQS_ROOT y no vuelve a clonar.
+ARG LIBOQS_TAG=0.16.0
+ENV LIBOQS_ROOT=/build/liboqs
+RUN git clone --depth 1 --branch "${LIBOQS_TAG}" \
+        https://github.com/open-quantum-safe/liboqs.git "${LIBOQS_ROOT}"
+
 RUN chmod +x build.sh && ./build.sh
 
 FROM php:8.4-fpm-bookworm
