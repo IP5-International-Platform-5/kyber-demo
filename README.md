@@ -1,8 +1,8 @@
 # Kyber Post-Quantum Cryptography PoC
 
-Key exchange and message encryption using **Kyber** (ML-KEM / post-quantum cryptography), exposed as a PHP API with an interactive web demo.
+Key exchange and message encryption using **ML-KEM-768** (FIPS 203, the standardised form of Kyber), exposed as a PHP API with an interactive web demo.
 
-> **Proof of concept.** This repository illustrates a Kyber-based key exchange and message flow for learning and experimentation. It is **not** a hardened product: there is no authentication on the APIs, shared secrets may appear in responses for the demo, keys live on disk in plain folders, and many operational concerns are out of scope. **Do not** deploy it as-is for real users or sensitive data. See [Security](#security).
+> **Proof of concept.** This repository illustrates a Kyber-based key exchange and message flow for learning and experimentation. It is **not** a hardened product: there is no authentication on the APIs, keys are persistent and live on disk in plain folders, and many operational concerns are out of scope. **Do not** deploy it as-is for real users or sensitive data. See [Security](#security).
 
 
 
@@ -70,7 +70,7 @@ The `demo.html` page groups calls that would normally go to `app` and `api_serve
     "public_key": "server_public_key_base64"
   }
   ```
-- **Response:** `ciphertext` and `shared_secret` in **base64** (plaintext secret in the response is for demos only).
+- **Response:** `ciphertext` in **base64** and `secret_fingerprint`. The shared secret itself never leaves the backend.
 
 
 
@@ -84,7 +84,7 @@ The `demo.html` page groups calls that would normally go to `app` and `api_serve
     "ciphertext": "kyber_ciphertext_base64"
   }
   ```
-- **Response:** Decapsulation result (e.g. `shared_secret` in base64).
+- **Response:** Decapsulation result: `secret_fingerprint`, which must match the one reported by the app side.
 
 
 
