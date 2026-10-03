@@ -69,7 +69,17 @@ cualquier aviso, en un commit propio que diga qué sube y por qué:
 ```bash
 docker pull php:8.4-fpm-bookworm
 docker inspect --format '{{index .RepoDigests 0}}' php:8.4-fpm-bookworm
+docker manifest inspect php:8.4-fpm-bookworm@sha256:<el que vayas a fijar>
 ```
+
+El tercer comando no es opcional: **un digest puede pudrirse**. Estas imágenes se
+reconstruyen a menudo y el registro deja de servir los manifiestos que se quedan
+sin etiqueta, así que un digest tomado de la API web puede caducar en horas.
+Aquí pasó: se fijó uno que el registro ya no sirve y la compilación seguía
+funcionando en local —la imagen estaba en el almacén—, pero en una máquina limpia
+o en la CI el `FROM` habría fallado. Toma siempre el digest que verifica el
+propio demonio, y confirma que `manifest inspect` responde en lugar de
+`manifest verification failed` antes de confirmarlo en git.
 
 ### Lo que todavía no está fijado
 

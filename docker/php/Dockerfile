@@ -4,7 +4,7 @@
 # Imágenes fijadas por digest, no por etiqueta: una etiqueta como "8.4-fpm-bookworm"
 # cambia de contenido sin cambiar de nombre, y entonces la compilación deja de ser
 # reproducible (QSLP/1 §19.8). Para actualizarlas, ver README, «Entorno de trabajo».
-FROM php:8.4-fpm-bookworm@sha256:0a5638c2c48eb04987107ae448a398dd18345bcf659e15fd99a422617e754264 AS extension-builder
+FROM php:8.4-fpm-bookworm@sha256:fb06b33cf42d420c9bff770f6d0556cc26d896e6854fdb8ca32f63f8a0c126e8 AS extension-builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
@@ -30,7 +30,7 @@ RUN git clone --depth 1 --branch "${LIBOQS_TAG}" \
 
 RUN chmod +x build.sh && ./build.sh
 
-FROM php:8.4-fpm-bookworm@sha256:0a5638c2c48eb04987107ae448a398dd18345bcf659e15fd99a422617e754264
+FROM php:8.4-fpm-bookworm@sha256:fb06b33cf42d420c9bff770f6d0556cc26d896e6854fdb8ca32f63f8a0c126e8
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl3 \
