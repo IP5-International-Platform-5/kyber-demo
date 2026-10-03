@@ -7,14 +7,16 @@ if (!defined('KEM_ALG')) {
 	define('KEM_ALG', 'ML-KEM-768');
 }
 /**
- * Generate a Kyber key pair and save it to files.
+ * Generate an ephemeral key pair. Nothing is written to disk.
  *
- * @param string $public_key_path Path to write the public key
- * @param string $private_key_path Path to write the private key
- * @param string $algorithm Kyber algorithm (default KEM_ALG)
- * @return array Operation result: [public_key => string, ...] or [error => string]
+ * A key pair that outlives the session is the reason this demo had no forward
+ * secrecy: whoever got hold of the stored private key could decrypt every
+ * exchange ever recorded. These keys live in memory and are used once.
+ *
+ * @param string $algorithm KEM algorithm (default KEM_ALG)
+ * @return array [public_key => raw, private_key => raw, public_key_length => int] or [error => string]
  */
-function generateKyberKeypair($public_key_path, $private_key_path, $algorithm = KEM_ALG) {
+function generateEphemeralKeypair($algorithm = KEM_ALG) {
 	try {
 		# Skip OQS_KEM_alg_is_enabled; create the KEM directly (avoids edge-case failures on some builds)
 		try {
@@ -34,13 +36,11 @@ function generateKyberKeypair($public_key_path, $private_key_path, $algorithm = 
 			];
 		}
 
-		# Save keys to files
-		file_put_contents($public_key_path, base64_encode($public_key));
-		file_put_contents($private_key_path, base64_encode($private_key));
-
+		# Raw material, for the caller to put straight into the session store.
+		# It must never reach a file nor a response body.
 		return [
-			'message' => 'Key pair generated and saved successfully',
-			'public_key' => base64_encode($public_key),
+			'public_key' => $public_key,
+			'private_key' => $private_key,
 			'public_key_length' => $kem->length_public_key
 		];
 	} catch (Exception $e) {
@@ -48,25 +48,6 @@ function generateKyberKeypair($public_key_path, $private_key_path, $algorithm = 
 			'error' => 'Error: ' . $e->getMessage()
 		];
 	}
-}
-
-/**
- * Read the previously generated public key.
- *
- * @return array Operation result: [public_key => string] or [error => string]
- */
-function getPublicKey($public_key_path) {
-	if (!file_exists($public_key_path)) {
-		return [
-			'error' => 'No public key has been generated'
-		];
-	}
-
-	$public_key = base64_decode(file_get_contents($public_key_path));
-
-	return [
-		'public_key' => base64_encode($public_key)
-	];
 }
 
 /**
@@ -89,10 +70,10 @@ function secretFingerprint($shared_secret) {
  * Encapsulate a shared secret using the remote public key.
  *
  * @param string $remote_public_key Remote public key (base64)
- * @param string $shared_secret_path Path to save the shared secret
+ * @param string $remote_public_key Remote public key (base64)
  * @return array Operation result: [ciphertext => string, secret_fingerprint => string] or [error => string]
  */
-function encapsulateSharedSecret($remote_public_key, $shared_secret_path) {
+function encapsulateSharedSecret($remote_public_key) {
 	try {
 		if (empty($remote_public_key)) {
 			return [
@@ -119,14 +100,11 @@ function encapsulateSharedSecret($remote_public_key, $shared_secret_path) {
 			];
 		}
 
-		# Persist for AES-GCM step
-		file_put_contents($shared_secret_path, base64_encode($shared_secret));
-
-		# The shared secret never leaves the backend: only its fingerprint, which
-		# lets the demo show that both ends agree without transmitting the key.
+		# The caller stores this in the session; it never reaches a file nor a
+		# response body. Only the fingerprint is safe to show.
 		return [
-			'ciphertext' => base64_encode($ciphertext),
-			'secret_fingerprint' => secretFingerprint($shared_secret)
+			'ciphertext' => $ciphertext,
+			'shared_secret' => $shared_secret
 		];
 	} catch (Exception $e) {
 		return [
@@ -141,11 +119,11 @@ function encapsulateSharedSecret($remote_public_key, $shared_secret_path) {
  * @param string $ciphertext Received ciphertext (base64)
  * @return array Operation result: [message => string] or [error => string]
  */
-function decapsulateSharedSecret($ciphertext, $private_key_path, $shared_secret_path) {
+function decapsulateSharedSecret($ciphertext, $private_key) {
 	try {
-		if (!file_exists($private_key_path)) {
+		if ($private_key === '') {
 			return [
-				'error' => 'No private key found for decapsulation'
+				'error' => 'No private key for decapsulation: the session expired or was already used'
 			];
 		}
 
@@ -156,8 +134,6 @@ function decapsulateSharedSecret($ciphertext, $private_key_path, $shared_secret_
 				'error' => 'Invalid ciphertext format'
 			];
 		}
-
-		$private_key = base64_decode(file_get_contents($private_key_path));
 
 		$kem = new OQS_KEYENCAPSULATION(KEM_ALG);
 
@@ -170,10 +146,8 @@ function decapsulateSharedSecret($ciphertext, $private_key_path, $shared_secret_
 			];
 		}
 
-		file_put_contents($shared_secret_path, base64_encode($shared_secret));
-
 		return [
-			'secret_fingerprint' => secretFingerprint($shared_secret)
+			'shared_secret' => $shared_secret
 		];
 	} catch (Exception $e) {
 		return [
@@ -188,11 +162,11 @@ function decapsulateSharedSecret($ciphertext, $private_key_path, $shared_secret_
  * @param string $message Plaintext to encrypt
  * @return array Operation result: [encrypted_data => string, iv => string] or [error => string]
  */
-function encryptMessage($message, $shared_secret_path) {
+function encryptMessage($message, $shared_secret) {
 	try {
-		if (!file_exists($shared_secret_path)) {
+		if (!is_string($shared_secret) || strlen($shared_secret) !== 32) {
 			return [
-				'error' => 'No shared secret available for encryption'
+				'error' => 'No usable shared secret for encryption: the session expired'
 			];
 		}
 
@@ -201,15 +175,6 @@ function encryptMessage($message, $shared_secret_path) {
 			error_log("AES-256-GCM is not available. Available methods: " . implode(', ', openssl_get_cipher_methods()));
 			return [
 				'error' => 'AES-256-GCM is not available on this server'
-			];
-		}
-
-		# Shared secret file is base64; trim in case of stray newlines
-		$raw = trim(file_get_contents($shared_secret_path));
-		$shared_secret = base64_decode($raw, true);
-		if ($shared_secret === false || strlen($shared_secret) !== 32) {
-			return [
-				'error' => 'Invalid or corrupted shared secret (expected 32 bytes after base64 decode)'
 			];
 		}
 
@@ -255,14 +220,14 @@ function encryptMessage($message, $shared_secret_path) {
  * Decrypt a message using the shared secret.
  *
  * @param array $data Payload with the base64 fields: encrypted_data, iv, tag
- * @param string $shared_secret_path Path to the stored shared secret (base64)
+ * @param string $shared_secret Raw 32-byte shared secret from the session store
  * @return array Operation result: [message => string] or [error => string]
  */
-function decryptMessage($data, $shared_secret_path) {
+function decryptMessage($data, $shared_secret) {
 	try {
-		if (!file_exists($shared_secret_path)) {
+		if (!is_string($shared_secret) || strlen($shared_secret) !== 32) {
 			return [
-				'error' => 'No shared secret available for decryption'
+				'error' => 'No usable shared secret for decryption: the session expired'
 			];
 		}
 
@@ -270,15 +235,6 @@ function decryptMessage($data, $shared_secret_path) {
 			error_log("AES-256-GCM is not available for decryption");
 			return [
 				'error' => 'AES-256-GCM is not available on this server'
-			];
-		}
-
-		# Same load path as encryptMessage()
-		$raw = trim(file_get_contents($shared_secret_path));
-		$shared_secret = base64_decode($raw, true);
-		if ($shared_secret === false || strlen($shared_secret) !== 32) {
-			return [
-				'error' => 'Invalid or corrupted shared secret (expected 32 bytes after base64 decode)'
 			];
 		}
 
