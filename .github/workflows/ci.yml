@@ -17,7 +17,7 @@ permissions:
 jobs:
   sintaxis:
     name: Sintaxis (PHP ${{ matrix.php }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -40,7 +40,7 @@ jobs:
 
   calidad-php:
     name: Estilo y análisis estático (PHP)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -70,14 +70,14 @@ jobs:
 
   calidad-front:
     name: Front-end
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
       - name: Preparar Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: npm
 
       - name: Instalar dependencias
@@ -95,7 +95,7 @@ jobs:
   titulo-del-pr:
     name: Título del PR (Conventional Commits)
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       # Con squash merge el título del PR acaba siendo el mensaje del commit
       # en main, así que se valida aquí. Ver CONTRIBUTING.md.

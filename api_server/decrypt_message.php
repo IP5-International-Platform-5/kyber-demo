@@ -38,6 +38,6 @@ $response = json_encode($result);
 response($response);
 
 function response($body) {
-    log_request("RESPONSE: {$body}");
+    log_response($body);
     echo $body;
 }
