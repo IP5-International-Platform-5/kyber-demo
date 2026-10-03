@@ -415,7 +415,8 @@
                 document.getElementById('encryptAndSendBtn').disabled = true;
                 ciphertext = null;
                 secretFingerprint = null;
-                keyId = null;
+                // keyId NO se reinicia aquí: es la entrada de este paso, lo
+                // entregó el paso 1. El nonce y el sid sí, porque se derivan ahora.
                 nonce = null;
                 sid = null;
 
