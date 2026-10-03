@@ -31,7 +31,7 @@ instala con el gestor de paquetes de ninguna distribución.
 | PHP (mínimo soportado) | 8.1 | `composer.json`: `require.php` y `config.platform.php` |
 | liboqs | 0.16.0 | `docker/php/Dockerfile`, `ARG LIBOQS_TAG` |
 | oqsphp (binding) | commit `8f929d2` | submódulo `liboqs-php` |
-| Node | 20 | `.nvmrc`, `engines` de `package.json` e imágenes por digest |
+| Node | 24 | `.nvmrc`, `engines` de `package.json` e imágenes por digest |
 | Nginx | `alpine` | `docker/nginx/Dockerfile`, imagen fijada por digest |
 | Algoritmo KEM | ML-KEM-768 (FIPS 203) | constante `KEM_ALG` en `libs/kyber_utils.php` |
 
@@ -42,7 +42,7 @@ instala con el gestor de paquetes de ninguna distribución.
 | Docker + Compose | Ejecutar la demo. Es lo único imprescindible | `sudo pacman -S docker docker-compose` |
 | PHP 8.x | `php -l` y las herramientas de estilo. **No ejecuta la demo** | `sudo pacman -S php` |
 | Composer | Dependencias de desarrollo | `sudo pacman -S composer` |
-| Node 20 | Solo si tocas el front fuera del contenedor | `nvm use` |
+| Node 24 | Solo si tocas el front fuera del contenedor | `nvm use` |
 
 `docker compose` es un plugin del cliente de Docker: si `docker compose version`
 responde «unknown command», falta el paquete `docker-compose`, aunque el demonio
@@ -89,12 +89,6 @@ propio demonio, y confirma que `manifest inspect` responde en lugar de
   mezclar: en `main` el `composer.json` está vacío.
 - `package-lock.json` no concuerda hoy con `package.json`, así que `npm ci`
   —y por tanto la imagen de Nginx— no compila hasta regenerarlo.
-- **Node 20 llegó a su fin de vida el 30 de abril de 2026** y ya no recibe
-  parches de seguridad. Las imágenes fijadas aquí son de abril de 2026, que es
-  exactamente cuando dejaron de reconstruirse. Están fijadas para que la
-  compilación sea reproducible, no porque sean las adecuadas: hay que subir a
-  Node 24, que es la LTS activa. Vite 6 lo admite, así que el cambio es
-  acotado, pero toca la compilación del front y merece su propio commit.
 
 ## Installation
 
