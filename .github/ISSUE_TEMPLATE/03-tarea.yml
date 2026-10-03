@@ -1,0 +1,37 @@
+name: Tarea
+description: Mantenimiento, documentación, refactor, herramientas o infraestructura.
+title: 'chore: '
+labels: ['tipo: tarea']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ajusta el prefijo del título al tipo real: `chore:`, `docs:`,
+        `refactor:`, `ci:`, `build:`, `test:` o `perf:`.
+
+  - type: textarea
+    id: descripcion
+    attributes:
+      label: Qué hay que hacer
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivo
+    attributes:
+      label: Por qué
+      description: >-
+        Qué mejora o qué desbloquea. Si es deuda técnica, di qué se hizo de
+        forma provisional y cuándo.
+    validations:
+      required: true
+
+  - type: textarea
+    id: hecho
+    attributes:
+      label: Se considera terminado cuando
+      value: |
+        - [ ]
+        - [ ] `composer verificar` y `npm run build` pasan en verde
+    validations:
+      required: true

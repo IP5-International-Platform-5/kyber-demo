@@ -1,0 +1,31 @@
+parameters:
+    # Nivel 5: es el más alto que este código pasa hoy sin avisos. El 6 exige
+    # tipos en todas las firmas y da 37 errores en código procedural, así que
+    # se sube cuando se vayan tipando api_server/, app/ y libs/, hasta igualar
+    # el nivel 6 de ip5-kyber-poc.
+    level: 5
+
+    paths:
+        - api_server
+        - app
+        - libs
+        - public
+
+    # El sufijo (?) marca la ruta como opcional: dist/ y node_modules/ solo
+    # existen tras compilar, y liboqs-php está vacío si no se inicializó el
+    # submódulo. Sin él, PHPStan falla al no encontrarlas.
+    excludePaths:
+        - vendor (?)
+        - node_modules (?)
+        - dist (?)
+        # Submódulo de terceros: no es código nuestro.
+        - liboqs-php (?)
+
+    # La extensión oqsphp es nativa: PHPStan solo la conoce por estos stubs.
+    # Debe ser `scanFiles` y no `stubFiles`: stubFiles solo reemplaza los tipos
+    # de símbolos que ya existen, mientras que scanFiles los da a conocer.
+    # Ojo: stubs/ no debe aparecer en excludePaths, o el fichero se ignora igual.
+    scanFiles:
+        - stubs/oqsphp.stub.php
+
+    treatPhpDocTypesAsCertain: false

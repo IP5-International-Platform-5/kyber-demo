@@ -1,0 +1,25 @@
+# Prettier se ocupa SOLO del front-end: JavaScript, CSS y HTML.
+#
+# Markdown, YAML y JSON quedan fuera a propósito: reflowea el texto, rompe las
+# tablas alineadas a mano de la documentación y reordena los comentarios de los
+# workflows. El formato de esos ficheros lo fija .editorconfig.
+
+# Dependencias, generados y submódulos
+node_modules/
+dist/
+vendor/
+liboqs-php/
+
+# El PHP lo formatea PHP-CS-Fixer
+*.php
+
+# Documentación y configuración: a mano
+*.md
+*.yml
+*.yaml
+*.json
+.github/
+
+# Configuración de servidores: formato propio
+docker/
+.htaccess
