@@ -1,0 +1,24 @@
+# Revisores asignados automáticamente en cada pull request.
+# Sintaxis: <patrón>  <@usuario o @org/equipo>
+# https://docs.github.com/es/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Por defecto, todo el repositorio.
+*   @podxboq
+
+# El núcleo criptográfico y los endpoints los revisa siempre Francisco:
+# un cambio aquí puede romper la forward secrecy sin que se note en la demo.
+/libs/kyber_utils.php   @podxboq
+/api_server/            @podxboq
+/app/                   @podxboq
+
+# Protocolo de trabajo y automatización.
+/.github/               @podxboq
+/CONTRIBUTING.md        @podxboq
+/docs/guia-de-estilo.md @podxboq
+
+# Infraestructura de despliegue.
+/docker/                @podxboq
+/docker-compose*.yml    @podxboq
+
+# TODO: añadir aquí el usuario de GitHub de César cuando se incorpore,
+# p.ej.:  /src/  @podxboq @usuario-de-cesar
