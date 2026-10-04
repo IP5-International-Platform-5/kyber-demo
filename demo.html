@@ -256,11 +256,18 @@
             let serverPublicKey = null;
             let secretFingerprint = null;
             let ciphertext = null;
-            // Handle of the server's ephemeral key pair, the client nonce and the
-            // derived session identifier. None of them is chosen by the browser.
+            // Handle of the server's ephemeral key pair and the derived session
+            // identifier. The sid is never chosen by the browser.
             let keyId = null;
-            let nonce = null;
             let sid = null;
+            // Handshake material: the nonces keep the signature fresh, and the
+            // identities are what turn a key exchange into an authenticated one.
+            let clientNonce = null;
+            let serverNonce = null;
+            let serverIdentity = null;
+            let serverSignature = null;
+            let appIdentity = null;
+            let appSignature = null;
 
             // Get the API base URL
             const getApiBaseUrl = () => {
@@ -365,12 +372,30 @@
                 ciphertext = null;
                 secretFingerprint = null;
                 keyId = null;
-                nonce = null;
                 sid = null;
+                clientNonce = null;
+                serverNonce = null;
+                serverIdentity = null;
+                serverSignature = null;
+                appIdentity = null;
+                appSignature = null;
                 serverPublicKey = null;
 
                 try {
-                    const response = await fetch(getServerApiUrl('get_public_key'), getFetchOptions());
+                    // Our contribution to the transcript. The server's signature has
+                    // to cover it, or an old signed offer could be replayed at us.
+                    const raw = crypto.getRandomValues(new Uint8Array(32));
+                    clientNonce = btoa(String.fromCharCode(...raw));
+
+                    const response = await fetch(getServerApiUrl('get_public_key'), getFetchOptions({
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            client_nonce: clientNonce
+                        })
+                    }));
                     const data = await response.json();
 
                     console.log('get_public_key response:', data);
@@ -384,9 +409,14 @@
                     else if (data.public_key) {
                         serverPublicKey = data.public_key;
                         keyId = data.key_id;
+                        serverNonce = data.server_nonce;
+                        serverIdentity = data.identity;
+                        serverSignature = data.signature;
 
-                        resultElement.innerHTML = `Ephemeral server public key received (key_id <code>${keyId}</code>).
-                        It is good for one exchange and the matching private key never touches disk:<br>
+                        resultElement.innerHTML = `Ephemeral server public key received (key_id <code>${keyId}</code>),
+                        <strong>signed</strong> by identity <span class="shared-secret-value">${data.identity_fingerprint}</span>.
+                        The key is good for one exchange and its private half never touches disk;
+                        the signature is what stops anyone swapping it in transit:<br>
                         <br>${serverPublicKey}`;
                         resultElement.classList.add('success');
                         document.getElementById('encapsulatePublicKeyInput').value = serverPublicKey;
@@ -415,10 +445,11 @@
                 document.getElementById('encryptAndSendBtn').disabled = true;
                 ciphertext = null;
                 secretFingerprint = null;
-                // keyId NO se reinicia aquí: es la entrada de este paso, lo
-                // entregó el paso 1. El nonce y el sid sí, porque se derivan ahora.
-                nonce = null;
+                // keyId, los nonces y la identidad del servidor NO se reinician
+                // aquí: son la entrada de este paso, los entregó el paso 1.
                 sid = null;
+                appIdentity = null;
+                appSignature = null;
 
                 const publicKeyPayload = document.getElementById('encapsulatePublicKeyInput').value.trim();
 
@@ -439,7 +470,11 @@
                         },
                         body: JSON.stringify({
                             public_key: publicKeyPayload,
-                            key_id: keyId
+                            key_id: keyId,
+                            client_nonce: clientNonce,
+                            server_nonce: serverNonce,
+                            identity: serverIdentity,
+                            signature: serverSignature
                         })
                     }));
                     const data = await response.json();
@@ -455,10 +490,15 @@
                     else if (data.ciphertext && data.secret_fingerprint) {
                         ciphertext = data.ciphertext;
                         secretFingerprint = data.secret_fingerprint;
-                        nonce = data.nonce;
                         sid = data.sid;
+                        appIdentity = data.identity;
+                        appSignature = data.signature;
 
-                        resultElement.innerHTML = `Created and encapsulated on the client:<br><br>
+                        resultElement.innerHTML = `Server signature <strong>verified</strong> against identity
+                        <span class="shared-secret-value">${data.server_identity_fingerprint}</span>, so the
+                        ephemeral key really is the server's.<br><br>
+                        Encapsulated and answered under our own identity
+                        <span class="shared-secret-value">${data.identity_fingerprint}</span>.<br><br>
                         Shared secret fingerprint (the secret itself never leaves the backend): <span class="shared-secret-value">${secretFingerprint}</span>
                         <br><br>
                         Ciphertext to send: ${ciphertext}`;
@@ -506,8 +546,9 @@
                         },
                         body: JSON.stringify({
                             ciphertext: ciphertextPayload,
-                            nonce: nonce,
-                            key_id: keyId
+                            key_id: keyId,
+                            identity: appIdentity,
+                            signature: appSignature
                         })
                     }));
                     const data = await response.json();
@@ -523,7 +564,9 @@
                     else if (data.secret_fingerprint) {
                         const agree = data.secret_fingerprint === secretFingerprint;
 
-                        resultElement.innerHTML = `Decapsulated on the server:<br><br>
+                        resultElement.innerHTML = `Client signature <strong>verified</strong> against identity
+                        <span class="shared-secret-value">${data.client_identity_fingerprint}</span>: the exchange is
+                        authenticated in both directions.<br><br>
                         Ciphertext received: ${ciphertext}<br><br>
                         Server fingerprint: <span class="shared-secret-value">${data.secret_fingerprint}</span><br>
                         Client fingerprint: <span class="shared-secret-value">${secretFingerprint}</span><br><br>
