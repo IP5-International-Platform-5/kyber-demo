@@ -285,7 +285,15 @@ project. Quick start:
 composer install && npm install
 composer verificar    # syntax, style and static analysis
 npm run formato       # front-end formatting
+
+docker compose up -d --build
+./scripts/prueba-e2e.sh    # end-to-end check against the running stack
 ```
+
+`scripts/prueba-e2e.sh` walks the whole flow and then checks what must **fail**:
+reusing an ephemeral key pair, inventing a session identifier, omitting it, and
+finding key material on disk or in the log. A happy path that passes says
+nothing about whether the defences are in place.
 
 The protocol itself is defined by the reference implementation,
 [ip5-kyber-poc](https://github.com/IP5-International-Platform-5/ip5-kyber-poc);
