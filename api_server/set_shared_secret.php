@@ -1,14 +1,13 @@
 <?php
-# Include CORS headers and path constants
+
+# Include CORS headers and the ephemeral store
 require_once __DIR__ . '/cors_headers.php';
 require_once __DIR__ . '/config.php';
 
-# Accept Kyber ciphertext and store derived shared secret
 header('Content-Type: application/json');
 
 require_once __DIR__ . '/../libs/kyber_utils.php';
 
-# Only POST allowed
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
     response(json_encode([
@@ -17,46 +16,67 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-# Read JSON request body
 $json_data = file_get_contents('php://input');
 $data = json_decode($json_data, true);
 
-# Verify that the ciphertext is present
-if (!isset($data['ciphertext']) || empty($data['ciphertext'])) {
-    http_response_code(400);
+foreach (['ciphertext', 'nonce', 'key_id'] as $field) {
+    if (!isset($data[$field]) || empty($data[$field])) {
+        http_response_code(400);
+        response(json_encode([
+            'error' => "Incomplete data. The \"$field\" field is required."
+        ]));
+        exit;
+    }
+}
+
+# The ephemeral private key for this exchange. If it is gone, the session
+# expired or the handle was already used: both are refusals, not errors.
+$offer = storeGet('srv', $data['key_id']);
+
+if ($offer === null) {
+    http_response_code(409);
     response(json_encode([
-        'error' => 'Incomplete data. The "ciphertext" field is required.'
+        'error' => 'Unknown or expired key_id. Start again from get_public_key.'
     ]));
     exit;
 }
 
 try {
-    # Kyber decapsulate using server private key; writes shared_secret.key
-    $result = decapsulateSharedSecret($data['ciphertext'], PRIVATE_KEY_PATH, SHARED_SECRET_PATH);
+    $result = decapsulateSharedSecret($data['ciphertext'], $offer['private_key']);
 
-    # If there was an error, return it
     if (isset($result['error'])) {
         http_response_code(500);
         response(json_encode($result));
         exit;
     }
 
-    # Return only the fingerprint: the derived secret never goes back on the wire
-    $json_response = json_encode([
-        'secret_fingerprint' => $result['secret_fingerprint']
-    ]);
+    $ciphertext = base64_decode(trim((string) $data['ciphertext']), true);
+    $nonce = base64_decode(trim((string) $data['nonce']), true);
 
-    if ($json_response === false) {
-        throw new Exception('Failed to encode JSON response: ' . json_last_error_msg());
+    if ($ciphertext === false || $nonce === false) {
+        http_response_code(400);
+        response(json_encode(['error' => 'Ciphertext or nonce is not valid base64']));
+        exit;
     }
 
-    response($json_response);
-} catch (Exception $e) {
-    http_response_code(500);
+    # Same derivation as the other end, from the same transcript. Nobody sends
+    # the identifier: if the two sides disagree, the next request simply misses.
+    $th = transcriptHash($offer['public_key'], $ciphertext, $nonce);
+    $sid = deriveSid($result['shared_secret'], $th);
+
+    storePut('srv', $sid, ['shared_secret' => $result['shared_secret']]);
+
+    # One decapsulation per key pair. The private key dies here.
+    storeForget('srv', $data['key_id']);
 
     response(json_encode([
-        'error' => 'Internal server error: ' . $e->getMessage()
+        'sid' => $sid,
+        'secret_fingerprint' => secretFingerprint($result['shared_secret']),
     ]));
+} catch (Exception $e) {
+    http_response_code(500);
+    error_log('set_shared_secret: ' . $e->getMessage());
+    response(json_encode(['error' => 'Internal server error']));
 }
 
 function response($body) {

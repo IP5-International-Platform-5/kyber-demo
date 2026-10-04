@@ -1,5 +1,5 @@
 <?php
-# Include CORS headers and path constants
+# Include CORS headers and the ephemeral store
 require_once __DIR__ . '/cors_headers.php';
 require_once __DIR__ . '/config.php';
 
@@ -29,8 +29,27 @@ if (!isset($data['message']) || $data['message'] === '') {
     exit;
 }
 
-# Uses shared_secret.key under app/keys/
-$result = encryptMessage($data['message'], SHARED_SECRET_PATH);
+if (!isset($data['sid']) || empty($data['sid'])) {
+    http_response_code(400);
+    response(json_encode([
+        'error' => 'The session identifier ("sid") is required.'
+    ]));
+    exit;
+}
+
+# The secret lives in the ephemeral store, under the identifier both ends
+# derived. No session, no secret: there is nothing on disk to fall back to.
+$session = storeGet('app', $data['sid']);
+
+if ($session === null) {
+    http_response_code(409);
+    response(json_encode([
+        'error' => 'Unknown or expired session. Start again from get public key.'
+    ]));
+    exit;
+}
+
+$result = encryptMessage($data['message'], $session['shared_secret']);
 
 response(json_encode($result));
 
