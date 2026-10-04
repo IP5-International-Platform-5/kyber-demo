@@ -49,25 +49,10 @@ function newHandle() {
 }
 
 /**
- * Transcript hash of this exchange: everything both ends have seen.
- *
- * This is not QSLP/1's TH2 — there is no signed handshake yet, that is step 4
- * of §18 — but it binds the session identifier to this public key, this
- * ciphertext and this nonce, so a replayed exchange cannot reuse an identifier.
- *
- * @param string $publicKey Raw public key
- * @param string $ciphertext Raw KEM ciphertext
- * @param string $nonce Raw client nonce
- * @return string Raw 32-byte hash
- */
-function transcriptHash($publicKey, $ciphertext, $nonce) {
-    return hash('sha3-256', 'QSLP1-demo TH' . $publicKey . $ciphertext . $nonce, true);
-}
-
-/**
  * Derive the session identifier. Both ends compute it independently from the
  * shared secret and the transcript, so it is never sent by the client and both
- * sides agree on it without negotiating it.
+ * sides agree on it without negotiating it. The transcript is TH2, built in
+ * identity.php: it covers both nonces, both identities and the signatures.
  *
  * @param string $sharedSecret Raw shared secret
  * @param string $transcriptHash Raw transcript hash

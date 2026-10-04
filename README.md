@@ -127,12 +127,25 @@ The `demo.html` page groups calls that would normally go to `app` and `api_serve
 ### 1. Get public key
 
 - **URL:** `/api_server/get_public_key`
-- **Method:** GET
-- **Response:** `key_id`, the `public_key` in **base64** and `public_key_length`.
+- **Method:** POST
+- **Body:**
+  ```json
+  {
+    "client_nonce": "32_random_bytes_base64"
+  }
+  ```
+- **Response:** `key_id`, `public_key`, `public_key_length`, `server_nonce`,
+  `identity`, `identity_fingerprint` and `signature`.
 
-  The key pair is **ephemeral**: it is generated for this request, the private
-  half never leaves memory, and it is destroyed after one decapsulation. The
-  `key_id` identifies it and is chosen by the server, never by the client.
+  The key pair is **ephemeral**: generated for this request, the private half
+  never leaves memory, destroyed after one decapsulation.
+
+  The `signature` is ML-DSA-65 over a transcript covering both nonces, the
+  `key_id`, the ephemeral key and the identity. **It is what stops a
+  man-in-the-middle swapping the key for their own** (§7.2); without it the
+  encryption protects you from whoever is listening, but not from whoever is
+  in the middle. The client nonce is there so an old signed offer cannot be
+  replayed at you.
 
 
 
@@ -144,10 +157,17 @@ The `demo.html` page groups calls that would normally go to `app` and `api_serve
   ```json
   {
     "public_key": "server_public_key_base64",
-    "key_id": "handle_from_step_1"
+    "key_id": "handle_from_step_1",
+    "client_nonce": "the_one_sent_in_step_1",
+    "server_nonce": "from_step_1",
+    "identity": "server_identity_base64",
+    "signature": "server_signature_base64"
   }
   ```
-- **Response:** `sid`, `nonce`, `ciphertext` in **base64** and `secret_fingerprint`.
+- **Response:** `sid`, `ciphertext`, `secret_fingerprint`, `confirmation`, this
+  node's own `identity` and `signature`, and the fingerprints of both parties.
+- **409** if the signature does not cover the offer, or if the server identity
+  differs from the pinned one.
 
   The shared secret itself never leaves the backend. The `sid` is **derived**
   from the secret and the transcript, not invented: both ends reach the same
@@ -163,12 +183,15 @@ The `demo.html` page groups calls that would normally go to `app` and `api_serve
   ```json
   {
     "ciphertext": "kyber_ciphertext_base64",
-    "nonce": "client_nonce_base64",
-    "key_id": "handle_from_step_1"
+    "key_id": "handle_from_step_1",
+    "identity": "client_identity_base64",
+    "signature": "client_signature_base64"
   }
   ```
-- **Response:** `sid` and `secret_fingerprint`, which must match the ones the app side reported.
-- **409** if the `key_id` is unknown, expired, or already used: a key pair is good for exactly one exchange.
+- **Response:** `sid`, `secret_fingerprint` and `confirmation`, which must match
+  the ones the app side reported, plus both fingerprints.
+- **409** if the `key_id` is unknown, expired or already used; if the client
+  signature does not cover the answer; or if the client identity changed.
 
 
 
@@ -254,8 +277,14 @@ This repository is a **proof of concept**: educational and demonstrative, **not*
 
 Done so far, following QSLP/1:
 
-- **No key material at rest.** Key pairs are ephemeral, the shared secret lives
-  only in the ephemeral store, and nothing is written to disk (§15.4).
+- **Mutually authenticated exchange.** Both sides hold a long-lived ML-DSA-65
+  identity and sign the handshake transcript, so neither the ephemeral key nor
+  the answer can be substituted in transit (§7.2, §7.3).
+- **No ephemeral key material at rest.** Key pairs are ephemeral, the shared
+  secret lives only in the ephemeral store, and nothing is written to disk
+  (§15.4). The signing identities *are* on disk, with `0600`, because an
+  identity is long-lived by definition (§5.2) — that is the opposite case, not
+  an exception.
 - **No secrets in logs or responses** (§15.2, §15.3). Responses carry a
   fingerprint; the log redacts by whitelist, so a field added later cannot leak
   by omission.
@@ -263,12 +292,18 @@ Done so far, following QSLP/1:
 
 Still missing, and it is a long list:
 
-1. Authentication of the endpoints. **The public key travels unsigned**, so
-   anyone in the middle can substitute it and read everything. This is the most
-   important one.
-2. Signatures and non-repudiation: there is no proof of who sent what.
-3. **HTTPS** everywhere, and CORS that is not `*`.
-4. Rate limiting and anti-replay.
+1. **Certificates and revocation.** Identities are raw keys pinned on first
+   use, so the *first* exchange is unauthenticated and a changed identity can
+   only be refused, never explained. A real deployment needs a CA, a
+   transparency log and revocation (§5.3, §5.4, §12).
+2. **The hybrid suite.** This is ML-KEM and ML-DSA alone; QSLP/1 requires them
+   paired with their classical equivalents, so that a break in either one is
+   survivable (§4.1).
+3. **Non-repudiation records**: signed receipts, timestamps and anchoring
+   (§11). Signing the handshake proves who you are talking to; it does not yet
+   prove what was said.
+4. **HTTPS** everywhere, and CORS that is not `*`.
+5. Rate limiting and anti-replay on the message layer.
 
 
 ## Contributing
