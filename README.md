@@ -29,7 +29,7 @@ instala con el gestor de paquetes de ninguna distribución.
 | ---------- | -------------- | ------------- |
 | PHP (ejecución) | 8.4 | `docker/php/Dockerfile`, imagen fijada por digest |
 | PHP (mínimo soportado) | 8.1 | `composer.json`: `require.php` y `config.platform.php` |
-| liboqs | 0.16.0 | `docker/php/Dockerfile`, `ARG LIBOQS_TAG` |
+| liboqs | 0.16.0 | `docker/php/Dockerfile`, `ARG LIBOQS_TAG`. La imagen lo deja escrito: `docker compose exec php cat /etc/liboqs-version` |
 | oqsphp (binding) | commit `8f929d2` | submódulo `liboqs-php` |
 | Node | 24 | `.nvmrc`, `engines` de `package.json` e imágenes por digest |
 | Nginx | `alpine` | `docker/nginx/Dockerfile`, imagen fijada por digest |
