@@ -20,6 +20,13 @@ j()    { python3 -c "import sys,json
 try: d = json.load(sys.stdin)
 except Exception: print(''); raise SystemExit
 print(d.get('$1',''))"; }
+# Como j(), pero recorre rutas con punto y devuelve objetos y listas como JSON.
+jp()   { python3 -c "import sys,json
+try: cur = json.load(sys.stdin)
+except Exception: print(''); raise SystemExit
+for k in '$1'.split('.'):
+    cur = cur.get(k) if isinstance(cur, dict) else None
+print('' if cur is None else (json.dumps(cur) if isinstance(cur, (dict, list)) else cur))"; }
 
 if ! curl -sf -o /dev/null -X POST -H 'Content-Type: application/json' -d '{"client_nonce":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}' "$B/api_server/get_public_key"; then
     echo "No responde $B. Levanta la pila con: docker compose up -d --build"
@@ -42,6 +49,7 @@ oferta() { printf '{"public_key":"%s","key_id":"%s","client_nonce":"%s","server_
 
 R2=$(curl -s -X POST "$B/app/get_shared_secret" -H 'Content-Type: application/json' -d "$(oferta "$PK" "$ID_S" "$SIG_S")")
 SID_APP=$(echo "$R2" | j sid); CT=$(echo "$R2" | j ciphertext); FP_APP=$(echo "$R2" | j secret_fingerprint)
+NODO_APP=$(echo "$R2" | j node_id)
 ID_C=$(echo "$R2" | j identity); SIG_C=$(echo "$R2" | j signature); CONF_APP=$(echo "$R2" | j confirmation)
 [ -n "$SID_APP" ] && ok "el lado app verifica la firma y deriva un sid" || fail "encapsulado" "$R2"
 echo "$R2" | grep -q shared_secret && fail "el encapsulado DEVUELVE el secreto" || ok "el encapsulado no devuelve el secreto"
@@ -65,11 +73,158 @@ MSG="Mensaje de prueba con acentos: ñandú"
 R4=$(curl -s -X POST "$B/app/encrypt_message" -H 'Content-Type: application/json' \
       -d "$(python3 -c "import json;print(json.dumps({'message':'$MSG','sid':'$SID_APP'}))")")
 ED=$(echo "$R4" | j encrypted_data); IV=$(echo "$R4" | j iv); TAG=$(echo "$R4" | j tag)
+RC=$(echo "$R4" | j rc_hash); SEQ=$(echo "$R4" | j seq)
 [ -n "$ED" ] && ok "cifrado AES-256-GCM" || fail "cifrado" "$R4"
+echo "$RC" | grep -qE '^[0-9a-f]{64}$' && ok "el emisor firma un receipt_core y devuelve su hash" || fail "sin rc_hash" "$R4"
+[ "$SEQ" = "0" ] && ok "el primer mensaje de la sesión lleva seq 0" || fail "seq inesperado" "«$SEQ»"
+[ "$(echo "$R4" | jp receipt_core.to)" != "" ] && ok "el receipt_core nombra al destinatario (§11.1)" || fail "receipt_core sin destinatario" "$R4"
 
-R5=$(curl -s -X POST "$B/api_server/decrypt_message" -H 'Content-Type: application/json' \
-      -d "$(python3 -c "import json;print(json.dumps({'encrypted_data':'$ED','iv':'$IV','tag':'$TAG','sid':'$SID_SRV'}))")")
+envia() { curl -s -X POST "$B/api_server/decrypt_message" -H 'Content-Type: application/json' \
+      -d "$(python3 -c "import json;print(json.dumps({'encrypted_data':'$1','iv':'$IV','tag':'$TAG','sid':'$2'}))")"; }
+
+R5=$(envia "$ED" "$SID_SRV")
 [ "$(echo "$R5" | j message)" = "$MSG" ] && ok "el servidor descifra el mensaje íntegro" || fail "descifrado" "$R5"
+
+echo "== Recibos firmados (§11.1, §11.2) =="
+[ "$(echo "$R5" | j rc_hash)" = "$RC" ] && ok "receptor y emisor calculan el mismo hash del núcleo" || fail "rc_hash distinto" "$(echo "$R5" | j rc_hash)"
+[ "$(echo "$R5" | j sender_signature_verified)" = "True" ] && ok "el receptor verificó la firma del emisor ANTES de entregar" || fail "entrega sin verificar" "$R5"
+RECIBO=$(echo "$R5" | jp receipt)
+[ -n "$RECIBO" ] && ok "el receptor devuelve un acuse firmado" || fail "sin acuse de recibo" "$R5"
+[ "$(echo "$R5" | jp receipt.rc_hash)" = "$RC" ] && ok "el acuse se refiere a este mensaje" || fail "acuse de otro mensaje"
+[ ${#RECIBO} -gt 4000 ] && ok "el acuse lleva firma ML-DSA-65 (${#RECIBO} car.)" || fail "acuse sin firma" "${#RECIBO}"
+
+R6=$(curl -s -X POST "$B/app/store_receipt" -H 'Content-Type: application/json' \
+      -d "$(python3 -c "
+import json, sys
+r = json.loads(sys.argv[1])
+print(json.dumps({'sid': sys.argv[2], 'rc_hash': r['rc_hash'], 'receipt': r['receipt']}))" "$R5" "$SID_APP")")
+[ "$(echo "$R6" | j receipt_verified)" = "True" ] && ok "el emisor verifica el acuse y lo archiva (no repudio de recepción)" || fail "acuse no verificado" "$R6"
+
+C=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/app/store_receipt" -H 'Content-Type: application/json' \
+      -d "$(python3 -c "
+import json, sys
+r = json.loads(sys.argv[1])
+rec = dict(r['receipt'])
+rec['ts'] = '2020-01-01T00:00:00Z'
+print(json.dumps({'sid': sys.argv[2], 'rc_hash': r['rc_hash'], 'receipt': rec}))" "$R5" "$SID_APP")")
+[ "$C" = "400" ] && ok "un acuse con la fecha cambiada se rechaza (400)" || fail "acuse manipulado admitido" "HTTP $C"
+
+echo "== Anti-replay (§8.2) =="
+R7=$(envia "$ED" "$SID_SRV")
+[ "$(echo "$R7" | j error)" = "E_REPLAY" ] && ok "reenviar el mismo mensaje se rechaza con E_REPLAY" || fail "replay admitido" "$R7"
+
+MSG2="Segundo mensaje"
+R8=$(curl -s -X POST "$B/app/encrypt_message" -H 'Content-Type: application/json' \
+      -d "$(python3 -c "import json;print(json.dumps({'message':'$MSG2','sid':'$SID_APP'}))")")
+[ "$(echo "$R8" | j seq)" = "1" ] && ok "el segundo mensaje avanza a seq 1" || fail "el seq no avanza" "$(echo "$R8" | j seq)"
+R9=$(curl -s -X POST "$B/api_server/decrypt_message" -H 'Content-Type: application/json' \
+      -d "$(python3 -c "import json;print(json.dumps({'encrypted_data':'$(echo "$R8" | j encrypted_data)','iv':'$(echo "$R8" | j iv)','tag':'$(echo "$R8" | j tag)','sid':'$SID_SRV'}))")")
+[ "$(echo "$R9" | j message)" = "$MSG2" ] && ok "el segundo mensaje se acepta con su propio seq" || fail "segundo mensaje rechazado" "$R9"
+RC2=$(echo "$R9" | j rc_hash)
+
+echo "== Anclaje Merkle (§11.4) =="
+R10=$(curl -s -X POST "$B/api_server/anchor_epoch" -H 'Content-Type: application/json' -d '{"force":true}')
+ANCLADAS=$(echo "$R10" | j anchored)
+[ "${ANCLADAS:-0}" -ge 1 ] && ok "se cierra la época y se ancla su raíz ($ANCLADAS época/s)" || fail "nada anclado" "$R10"
+RAIZ=$(python3 -c "
+import json, sys
+d = json.loads(sys.argv[1])
+print(d['epochs'][0]['root'] if d.get('epochs') else '')" "$R10")
+echo "$RAIZ" | grep -qE '^[0-9a-f]{64}$' && ok "la raíz de época son 32 bytes y nada más (§11.4)" || fail "raíz inesperada" "«$RAIZ»"
+[ -n "$(echo "$R10" | jp last_checkpoint.signature)" ] && ok "el cierre produce un checkpoint firmado (§19.2)" || fail "checkpoint sin firmar" "$R10"
+
+echo "== Paquete de evidencia y verificador independiente (§19.3, §19.4) =="
+PAQUETE="$REPO/.e2e/evidencia-e2e.json"
+curl -s -X POST "$B/api_server/evidence" -H 'Content-Type: application/json' \
+      -d "$(python3 -c "import json,sys;print(json.dumps({'rc_hash':'$RC','payload':sys.argv[1]}))" "$MSG")" > "$PAQUETE"
+[ "$(cat "$PAQUETE" | j qslp_evidence)" = "1" ] && ok "el nodo exporta un paquete de evidencia" || fail "exportación" "$(head -c 200 "$PAQUETE")"
+[ -n "$(cat "$PAQUETE" | jp signatures.receiver_receipt.signature)" ] && ok "el paquete lleva LAS DOS firmas (§19.3)" || fail "paquete con una sola firma"
+[ "$(cat "$PAQUETE" | jp payload.matches_hash)" = "True" ] && ok "el contenido aportado cuadra con payload_hash" || fail "el contenido no cuadra"
+[ -n "$(cat "$PAQUETE" | jp merkle_proof.root)" ] && ok "el paquete trae prueba de inclusión en la raíz anclada" || fail "sin prueba de Merkle"
+
+# El verificador necesita la extensión oqsphp para las firmas: dentro del
+# contenedor si está a mano, y si no, con el PHP del sistema avisando.
+if docker exec kyber-php true 2>/dev/null; then
+    verifica() { local f=$1; shift; docker exec kyber-php php /var/www/html/scripts/verificar-evidencia.php "/var/www/html/.e2e/$f" "$@"; }
+else
+    verifica() { local f=$1; shift; php "$REPO/scripts/verificar-evidencia.php" "$REPO/.e2e/$f" "$@"; }
+    printf '  nota   no hay contenedor a mano: el verificador correrá sin oqsphp
+'
+fi
+
+SALIDA=$(verifica evidencia-e2e.json); CODIGO=$?
+[ "$CODIGO" = "0" ] && ok "el verificador independiente acepta el paquete" || fail "el verificador lo rechaza" "$(echo "$SALIDA" | grep '\[ NO \]' | head -3)"
+echo "$SALIDA" | grep -q 'no repudio de origen' && ok "el informe comprueba el no repudio de origen" || fail "el informe no menciona el origen"
+echo "$SALIDA" | grep -q 'no repudio de recepción' && ok "el informe comprueba el no repudio de recepción" || fail "el informe no menciona la recepción"
+echo "$SALIDA" | grep -q '\[ !! \].*§11.3' && ok "el informe declara que falta el sello cualificado" || fail "el informe calla la falta de sello"
+echo "$SALIDA" | grep -q '\[ !! \].*§11.4' && ok "el informe declara que el anclaje no está en una cadena" || fail "el informe calla el anclaje local"
+
+# Manipular el paquete: el verificador tiene que rechazarlo.
+python3 -c "
+import json, sys
+d = json.load(open(sys.argv[1]))
+d['receipt_core']['seq'] = 99
+json.dump(d, open(sys.argv[2], 'w'))" "$PAQUETE" "$REPO/.e2e/evidencia-manipulada.json"
+SALIDA=$(verifica evidencia-manipulada.json); CODIGO=$?
+[ "$CODIGO" = "1" ] && ok "cambiar un campo del núcleo invalida el paquete" || fail "paquete manipulado aceptado" "código $CODIGO"
+echo "$SALIDA" | grep -q 'NO sostiene lo que afirma' && ok "el informe dice sin rodeos que no sostiene lo que afirma" || fail "informe ambiguo"
+
+python3 -c "
+import json, sys
+d = json.load(open(sys.argv[1]))
+d['signatures']['receiver_receipt']['signature'] = 'A' + d['signatures']['receiver_receipt']['signature'][1:]
+json.dump(d, open(sys.argv[2], 'w'))" "$PAQUETE" "$REPO/.e2e/evidencia-sin-acuse.json"
+verifica evidencia-sin-acuse.json > /dev/null 2>&1
+[ "$?" = "1" ] && ok "manipular el acuse invalida el paquete" || fail "acuse manipulado aceptado"
+
+# Atar la identidad desde fuera del paquete: el node_id viene del handshake,
+# no del propio fichero que se está verificando.
+SALIDA=$(verifica evidencia-e2e.json --emisor="$NODO_APP"); CODIGO=$?
+[ "$CODIGO" = "0" ] && ok "el paquete resiste atar el emisor a una identidad conocida" || fail "no cuadra con el emisor del handshake" "$NODO_APP"
+echo "$SALIDA" | grep -q 'El emisor es la identidad indicada' && ok "el informe deja de decir «no comprobado» sobre el emisor" || fail "el informe no recoge --emisor"
+
+verifica evidencia-e2e.json --emisor=ip5:AAAAAAAAAAAAAAAAAAAAAAAAAA > /dev/null 2>&1
+[ "$?" = "1" ] && ok "atarlo a otra identidad lo invalida" || fail "acepta un emisor que no es"
+
+# Con un checkpoint posterior al del hecho, la prueba de consistencia deja de
+# ser trivial: es la que demuestra que el diario no se reescribió después.
+R11=$(curl -s -X POST "$B/app/encrypt_message" -H 'Content-Type: application/json' \
+      -d "$(python3 -c "import json;print(json.dumps({'message':'Tercer mensaje','sid':'$SID_APP'}))")")
+curl -s -o /dev/null -X POST "$B/api_server/decrypt_message" -H 'Content-Type: application/json' \
+      -d "$(python3 -c "import json;print(json.dumps({'encrypted_data':'$(echo "$R11" | j encrypted_data)','iv':'$(echo "$R11" | j iv)','tag':'$(echo "$R11" | j tag)','sid':'$SID_SRV'}))")"
+curl -s -o /dev/null -X POST "$B/api_server/anchor_epoch" -H 'Content-Type: application/json' -d '{"force":true}'
+
+curl -s -X POST "$B/api_server/evidence" -H 'Content-Type: application/json' \
+      -d "$(python3 -c "import json,sys;print(json.dumps({'rc_hash':'$RC','payload':sys.argv[1]}))" "$MSG")" > "$REPO/.e2e/evidencia-posterior.json"
+SALIDA=$(verifica evidencia-posterior.json); CODIGO=$?
+[ "$CODIGO" = "0" ] && ok "el paquete reexportado sigue verificando" || fail "el paquete reexportado falla"
+echo "$SALIDA" | grep -q '\[ SÍ \] El diario encadena desde el checkpoint del hecho' \
+    && ok "con un checkpoint posterior, la consistencia del diario se demuestra" \
+    || fail "la prueba de consistencia no llega a demostrarse" "$(echo "$SALIDA" | grep 'consistencia')"
+
+# Reescribir el diario después del hecho tiene que delatarse en esa prueba.
+python3 -c "
+import json, sys
+d = json.load(open(sys.argv[1]))
+entradas = d['consistency_proof']['entries']
+entradas[0]['data_hash'] = '0' * 64
+json.dump(d, open(sys.argv[2], 'w'))" "$REPO/.e2e/evidencia-posterior.json" "$REPO/.e2e/evidencia-reescrita.json"
+SALIDA=$(verifica evidencia-reescrita.json); CODIGO=$?
+[ "$CODIGO" = "1" ] && ok "reescribir una entrada del diario invalida la consistencia" || fail "reescritura del diario admitida"
+# El detalle se envuelve a 64 columnas, así que la frase se busca sobre la
+# salida aplanada y no línea a línea.
+echo "$SALIDA" | grep -q '\[ NO \] El diario encadena' && ok "el informe señala en qué línea falla" || fail "el informe no señala la consistencia"
+echo "$SALIDA" | tr '\n' ' ' | tr -s ' ' | grep -q 'diario fue reescrito' && ok "el informe nombra la reescritura" || fail "el informe no explica la reescritura"
+
+# E2E_CONSERVAR=1 deja los paquetes en .e2e/ para mirarlos con calma.
+[ -n "${E2E_CONSERVAR:-}" ] || rm -f \
+    "$REPO/.e2e/evidencia-manipulada.json" "$REPO/.e2e/evidencia-sin-acuse.json" \
+    "$REPO/.e2e/evidencia-posterior.json" "$REPO/.e2e/evidencia-reescrita.json"
+
+echo "== Aislamiento entre sesiones =="
+C=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/api_server/decrypt_message" -H 'Content-Type: application/json' \
+      -d "$(python3 -c "import json;print(json.dumps({'encrypted_data':'$ED','iv':'$IV','tag':'$TAG','sid':'0000000000000000000000000000000000000000'}))")")
+[ "$C" = "409" ] && ok "un criptograma con un sid ajeno se rechaza (409)" || fail "sid ajeno admitido" "HTTP $C"
 
 echo "== Autenticación: lo que debe rechazarse =="
 voltea() { python3 -c "
@@ -119,6 +274,46 @@ for d in api_server/keys app/keys; do
     n=$(find "$REPO/$d" -type f 2>/dev/null | wc -l)
     [ "$n" = "0" ] && ok "$d sin ficheros" || fail "$d contiene $n fichero(s)"
 done
+
+for f in "$REPO"/journal/*.jsonl "$REPO"/journal/receipts/*/*.json "$REPO"/journal/epochs/*.json; do
+    [ -f "$f" ] || continue
+    if grep -qF "$MSG" "$f" 2>/dev/null; then
+        fail "$(basename "$f") contiene el texto en claro"
+    fi
+done
+ok "el diario, los recibos y las épocas guardan hashes, no mensajes (§15.2, §19.2)"
+
+if [ -f "$REPO/journal/srv.jsonl" ]; then
+    python3 - "$REPO/journal/srv.jsonl" <<'PY'
+import hashlib, json, sys
+
+GENESIS = '0' * 64
+
+
+def canonico(o):
+    return json.dumps(o, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
+
+
+def hash_entrada(e):
+    return hashlib.sha3_256(('QSLP1-demo JE' + canonico(e)).encode()).hexdigest()
+
+
+prev = GENESIS
+for linea in open(sys.argv[1], encoding='utf-8'):
+    linea = linea.strip()
+    if not linea:
+        continue
+    e = json.loads(linea)
+    if e['prev'] != prev:
+        print('roto en la entrada %s' % e['n'])
+        raise SystemExit(1)
+    prev = hash_entrada(e)
+raise SystemExit(0)
+PY
+    # Un segundo lector, en otro lenguaje, recalcula el encadenamiento: si solo
+    # lo comprueba quien lo escribe, no se está comprobando nada.
+    [ "$?" = "0" ] && ok "el encadenamiento del diario cuadra recalculado desde fuera" || fail "el diario del servidor no encadena"
+fi
 
 L="$REPO/logs/requests.log"
 if [ -f "$L" ]; then
