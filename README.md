@@ -1,13 +1,14 @@
 # Kyber Post-Quantum Cryptography PoC
 
-Key exchange and message encryption using **Kyber** (ML-KEM / post-quantum cryptography), exposed as a PHP API with an interactive web demo.
+Key exchange and message encryption using **ML-KEM-768** (FIPS 203, the standardised form of Kyber), exposed as a PHP API with an interactive web demo.
 
-> **Proof of concept.** This repository illustrates a Kyber-based key exchange and message flow for learning and experimentation. It is **not** a hardened product: there is no authentication on the APIs, shared secrets may appear in responses for the demo, keys live on disk in plain folders, and many operational concerns are out of scope. **Do not** deploy it as-is for real users or sensitive data. See [Security](#security).
+> **Proof of concept.** This repository illustrates a Kyber-based key exchange and message flow for learning and experimentation. It is **not** a hardened product: there is no authentication on the APIs, keys are persistent and live on disk in plain folders, and many operational concerns are out of scope. **Do not** deploy it as-is for real users or sensitive data. See [Security](#security).
 
 
 
 ## Table of contents
 
+- [Entorno de trabajo](#entorno-de-trabajo)
 - [Installation](#installation)
 - [Architecture](#architecture)
 - [API (endpoints)](#api-endpoints)
@@ -17,6 +18,77 @@ Key exchange and message encryption using **Kyber** (ML-KEM / post-quantum crypt
 - [Security](#security)
 
 
+
+## Entorno de trabajo
+
+**El entorno de referencia es el contenedor, no tu máquina.** La demo solo se
+ejecuta dentro de Docker, porque necesita la extensión `oqsphp`, que no se
+instala con el gestor de paquetes de ninguna distribución.
+
+| Componente | Versión fijada | Dónde se fija |
+| ---------- | -------------- | ------------- |
+| PHP (ejecución) | 8.4 | `docker/php/Dockerfile`, imagen fijada por digest |
+| PHP (mínimo soportado) | 8.1 | `composer.json`: `require.php` y `config.platform.php` |
+| liboqs | 0.16.0 | `docker/php/Dockerfile`, `ARG LIBOQS_TAG` |
+| oqsphp (binding) | commit `8f929d2` | submódulo `liboqs-php` |
+| Node | 24 | `.nvmrc`, `engines` de `package.json` e imágenes por digest |
+| Nginx | `alpine` | `docker/nginx/Dockerfile`, imagen fijada por digest |
+| Algoritmo KEM | ML-KEM-768 (FIPS 203) | constante `KEM_ALG` en `libs/kyber_utils.php` |
+
+### Qué hace falta en local
+
+| Herramienta | Para qué | Instalación en Arch/Manjaro |
+| ----------- | -------- | --------------------------- |
+| Docker + Compose | Ejecutar la demo. Es lo único imprescindible | `sudo pacman -S docker docker-compose` |
+| PHP 8.x | `php -l` y las herramientas de estilo. **No ejecuta la demo** | `sudo pacman -S php` |
+| Composer | Dependencias de desarrollo | `sudo pacman -S composer` |
+| Node 24 | Solo si tocas el front fuera del contenedor | `nvm use` |
+
+`docker compose` es un plugin del cliente de Docker: si `docker compose version`
+responde «unknown command», falta el paquete `docker-compose`, aunque el demonio
+esté funcionando.
+
+La extensión `sodium` hará falta para la zeroización de material de clave. El
+módulo viene con PHP pero llega desactivado: hay que descomentar
+`extension=sodium` en `/etc/php/php.ini`.
+
+### Por qué por digest y no por etiqueta
+
+Una etiqueta como `php:8.4-fpm-bookworm` cambia de contenido sin cambiar de
+nombre, y el guion de compilación de `liboqs-php` clonaba la rama `main` de
+liboqs. Con las dos cosas juntas, dos compilaciones en fechas distintas podían
+traer conjuntos de algoritmos distintos: en liboqs 0.15.0 desapareció Dilithium
+y en 0.16.0, SPHINCS+. Para un proyecto que aspira a que sus registros tengan
+valor probatorio, no poder decir con qué código se generó una firma es un
+defecto, no una molestia.
+
+La contrapartida es real: **fijar por digest congela también las actualizaciones
+de seguridad de la imagen base**. Conviene revisarlas una vez al mes, y ante
+cualquier aviso, en un commit propio que diga qué sube y por qué:
+
+```bash
+docker pull php:8.4-fpm-bookworm
+docker inspect --format '{{index .RepoDigests 0}}' php:8.4-fpm-bookworm
+docker manifest inspect php:8.4-fpm-bookworm@sha256:<el que vayas a fijar>
+```
+
+El tercer comando no es opcional: **un digest puede pudrirse**. Estas imágenes se
+reconstruyen a menudo y el registro deja de servir los manifiestos que se quedan
+sin etiqueta, así que un digest tomado de la API web puede caducar en horas.
+Aquí pasó: se fijó uno que el registro ya no sirve y la compilación seguía
+funcionando en local —la imagen estaba en el almacén—, pero en una máquina limpia
+o en la CI el `FROM` habría fallado. Toma siempre el digest que verifica el
+propio demonio, y confirma que `manifest inspect` responde en lugar de
+`manifest verification failed` antes de confirmarlo en git.
+
+### Lo que todavía no está fijado
+
+- Los *runners* de la CI usan `ubuntu-latest`, que es una etiqueta móvil, y las
+  acciones se fijan por versión mayor (`actions/checkout@v4`), no por commit.
+- `composer.json` y `composer.lock` reales viven en la rama del protocolo, sin
+  mezclar: en `main` el `composer.json` está vacío.
+- `package-lock.json` no concuerda hoy con `package.json`, así que `npm ci`
+  —y por tanto la imagen de Nginx— no compila hasta regenerarlo.
 
 ## Installation
 
@@ -70,7 +142,7 @@ The `demo.html` page groups calls that would normally go to `app` and `api_serve
     "public_key": "server_public_key_base64"
   }
   ```
-- **Response:** `ciphertext` and `shared_secret` in **base64** (plaintext secret in the response is for demos only).
+- **Response:** `ciphertext` in **base64** and `secret_fingerprint`. The shared secret itself never leaves the backend.
 
 
 
@@ -84,7 +156,7 @@ The `demo.html` page groups calls that would normally go to `app` and `api_serve
     "ciphertext": "kyber_ciphertext_base64"
   }
   ```
-- **Response:** Decapsulation result (e.g. `shared_secret` in base64).
+- **Response:** Decapsulation result: `secret_fingerprint`, which must match the one reported by the app side.
 
 
 

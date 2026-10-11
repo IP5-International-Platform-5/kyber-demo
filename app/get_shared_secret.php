@@ -36,6 +36,6 @@ $result = encapsulateSharedSecret($public_key, SHARED_SECRET_PATH);
 response(json_encode($result));
 
 function response($body) {
-    log_request("RESPONSE: {$body}");
+    log_response($body);
     echo $body;
 }

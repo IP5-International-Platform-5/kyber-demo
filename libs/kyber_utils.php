@@ -1,13 +1,20 @@
 <?php
+
+# Both ends must agree on the KEM, so it is declared once, here, and not at each
+# call site. ML-KEM-768 (FIPS 203) is the standard; "Kyber768" and "Kyber1024"
+# are pre-standard names liboqs still ships, and they do NOT interoperate with it.
+if (!defined('KEM_ALG')) {
+	define('KEM_ALG', 'ML-KEM-768');
+}
 /**
  * Generate a Kyber key pair and save it to files.
  *
  * @param string $public_key_path Path to write the public key
  * @param string $private_key_path Path to write the private key
- * @param string $algorithm Kyber algorithm (default "Kyber1024")
+ * @param string $algorithm Kyber algorithm (default KEM_ALG)
  * @return array Operation result: [public_key => string, ...] or [error => string]
  */
-function generateKyberKeypair($public_key_path, $private_key_path, $algorithm = "Kyber1024") {
+function generateKyberKeypair($public_key_path, $private_key_path, $algorithm = KEM_ALG) {
 	try {
 		# Skip OQS_KEM_alg_is_enabled; create the KEM directly (avoids edge-case failures on some builds)
 		try {
@@ -63,11 +70,27 @@ function getPublicKey($public_key_path) {
 }
 
 /**
+ * Fingerprint of a shared secret, for display only.
+ *
+ * Lets both ends check that they derived the same secret without either of them
+ * sending it. Truncated and domain-separated on purpose: it identifies the
+ * session, it does not reconstruct the key.
+ *
+ * @param string $shared_secret Raw shared secret (binary)
+ * @return string 16 hex characters, grouped in fours for visual comparison
+ */
+function secretFingerprint($shared_secret) {
+	$digest = hash('sha3-256', 'kyber-demo fingerprint v1' . $shared_secret, true);
+
+	return implode(' ', str_split(bin2hex(substr($digest, 0, 8)), 4));
+}
+
+/**
  * Encapsulate a shared secret using the remote public key.
  *
  * @param string $remote_public_key Remote public key (base64)
  * @param string $shared_secret_path Path to save the shared secret
- * @return array Operation result: [ciphertext => string, shared_secret => string] or [error => string]
+ * @return array Operation result: [ciphertext => string, secret_fingerprint => string] or [error => string]
  */
 function encapsulateSharedSecret($remote_public_key, $shared_secret_path) {
 	try {
@@ -85,7 +108,7 @@ function encapsulateSharedSecret($remote_public_key, $shared_secret_path) {
 			];
 		}
 
-		$kem = new OQS_KEYENCAPSULATION("Kyber1024");
+		$kem = new OQS_KEYENCAPSULATION(KEM_ALG);
 
 		# Encapsulate: ciphertext + shared secret (binary)
 		$status = $kem->encapsulate($ciphertext, $shared_secret, $public_key);
@@ -99,10 +122,11 @@ function encapsulateSharedSecret($remote_public_key, $shared_secret_path) {
 		# Persist for AES-GCM step
 		file_put_contents($shared_secret_path, base64_encode($shared_secret));
 
-		# Return ciphertext and shared secret (demo only)
+		# The shared secret never leaves the backend: only its fingerprint, which
+		# lets the demo show that both ends agree without transmitting the key.
 		return [
 			'ciphertext' => base64_encode($ciphertext),
-			'shared_secret' => base64_encode($shared_secret)
+			'secret_fingerprint' => secretFingerprint($shared_secret)
 		];
 	} catch (Exception $e) {
 		return [
@@ -135,7 +159,7 @@ function decapsulateSharedSecret($ciphertext, $private_key_path, $shared_secret_
 
 		$private_key = base64_decode(file_get_contents($private_key_path));
 
-		$kem = new OQS_KEYENCAPSULATION("Kyber1024");
+		$kem = new OQS_KEYENCAPSULATION(KEM_ALG);
 
 		# Decapsulate to the same shared secret the client derived
 		$status = $kem->decapsulate($shared_secret, $binary_ciphertext, $private_key);
@@ -149,7 +173,7 @@ function decapsulateSharedSecret($ciphertext, $private_key_path, $shared_secret_
 		file_put_contents($shared_secret_path, base64_encode($shared_secret));
 
 		return [
-			'shared_secret' => $shared_secret
+			'secret_fingerprint' => secretFingerprint($shared_secret)
 		];
 	} catch (Exception $e) {
 		return [
