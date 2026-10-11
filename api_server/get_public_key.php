@@ -1,12 +1,9 @@
 <?php
-// Debug (uncomment to trace in the PHP error log)
-//error_log("get_public_key.php running");
 
-# Include CORS headers and path constants
+# Include CORS headers and the ephemeral store
 require_once __DIR__ . '/cors_headers.php';
 require_once __DIR__ . '/config.php';
 
-# Public key endpoint (JSON)
 header('Content-Type: application/json');
 
 require_once __DIR__ . '/../libs/kyber_utils.php';
@@ -20,27 +17,32 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     exit;
 }
 
-# Obtain the public key
-$result = getPublicKey(PUBLIC_KEY_PATH);
-//error_log('getPublicKey() result: ' . print_r($result, true));
+# A fresh key pair per request. There is no stored key to read any more: that is
+# what gives forward secrecy, because yesterday's traffic cannot be decrypted
+# with a key that no longer exists.
+$result = generateEphemeralKeypair();
 
-# If missing, generate a new Kyber key pair and read the public key again
 if (isset($result['error'])) {
-    error_log("No public key found; generating new key pair");
-    $generate_result = generateKyberKeypair(PUBLIC_KEY_PATH, PRIVATE_KEY_PATH);
-
-    if (!isset($generate_result['error'])) {
-        error_log("Key pair generated; reading public key");
-        $result = getPublicKey(PUBLIC_KEY_PATH);
-    } else {
-        # Return generation error to the client
-        $result = $generate_result;
-    }
+    http_response_code(500);
+    response(json_encode($result));
+    exit;
 }
 
-$response = json_encode($result);
+# The private key stays on this side, indexed by a handle WE choose. The client
+# never picks an identifier (QSLP/1 §7.4), and the handle is good for exactly
+# one decapsulation.
+$key_id = newHandle();
 
-response($response);
+storePut('srv', $key_id, [
+    'private_key' => $result['private_key'],
+    'public_key' => $result['public_key'],
+]);
+
+response(json_encode([
+    'key_id' => $key_id,
+    'public_key' => base64_encode($result['public_key']),
+    'public_key_length' => $result['public_key_length'],
+]));
 
 function response($body) {
     log_response($body);

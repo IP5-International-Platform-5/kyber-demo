@@ -1,5 +1,5 @@
 <?php
-# Include CORS headers and path constants
+# Include CORS headers and the ephemeral store
 require_once __DIR__ . '/cors_headers.php';
 require_once __DIR__ . '/config.php';
 
@@ -31,8 +31,25 @@ if (!isset($data['encrypted_data']) || empty($data['encrypted_data']) ||
     exit;
 }
 
-# Uses shared_secret.key on the server
-$result = decryptMessage($data, SHARED_SECRET_PATH);
+if (!isset($data['sid']) || empty($data['sid'])) {
+    http_response_code(400);
+    response(json_encode([
+        'error' => 'The session identifier ("sid") is required.'
+    ]));
+    exit;
+}
+
+$session = storeGet('srv', $data['sid']);
+
+if ($session === null) {
+    http_response_code(409);
+    response(json_encode([
+        'error' => 'Unknown or expired session. Start again from get public key.'
+    ]));
+    exit;
+}
+
+$result = decryptMessage($data, $session['shared_secret']);
 $response = json_encode($result);
 
 response($response);

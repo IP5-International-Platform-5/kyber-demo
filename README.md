@@ -2,7 +2,7 @@
 
 Key exchange and message encryption using **ML-KEM-768** (FIPS 203, the standardised form of Kyber), exposed as a PHP API with an interactive web demo.
 
-> **Proof of concept.** This repository illustrates a Kyber-based key exchange and message flow for learning and experimentation. It is **not** a hardened product: there is no authentication on the APIs, keys are persistent and live on disk in plain folders, and many operational concerns are out of scope. **Do not** deploy it as-is for real users or sensitive data. See [Security](#security).
+> **Proof of concept.** This repository illustrates a Kyber-based key exchange and message flow for learning and experimentation. It is **not** a hardened product: there is no authentication on the APIs, there are no signatures, and many operational concerns are out of scope. **Do not** deploy it as-is for real users or sensitive data. See [Security](#security).
 
 
 
@@ -116,7 +116,7 @@ The **browser** is the front end. Two logical backends cooperate over HTTP:
 | `dist/`       | Built static front (Vite).                                                                              |
 
 
-Each backend has its own `config.php` and `cors_headers.php`. Keys: `app/keys/` (app side) and `api_server/keys/` (server). In a real deployment these would be different hosts; here they are two folders on one machine. After Kyber, each side stores its own copy of the shared secret on disk (the **value** must match). If steps get out of order, start again from “get public key” or delete `shared_secret.key` in both key directories.
+Each backend has its own `config.php` and `cors_headers.php`. In a real deployment these would be different hosts; here they are two folders on one machine. **No key material is written to disk:** each side keeps its own copy of the shared secret in the ephemeral store (APCu), under a session identifier both ends derive separately. Sessions last five minutes. If steps get out of order, start again from “get public key”; there is nothing to delete.
 
 The `demo.html` page groups calls that would normally go to `app` and `api_server` separately.
 
@@ -128,7 +128,11 @@ The `demo.html` page groups calls that would normally go to `app` and `api_serve
 
 - **URL:** `/api_server/get_public_key`
 - **Method:** GET
-- **Response:** JSON with the public key in **base64** (Kyber bytes).
+- **Response:** `key_id`, the `public_key` in **base64** and `public_key_length`.
+
+  The key pair is **ephemeral**: it is generated for this request, the private
+  half never leaves memory, and it is destroyed after one decapsulation. The
+  `key_id` identifies it and is chosen by the server, never by the client.
 
 
 
@@ -139,10 +143,15 @@ The `demo.html` page groups calls that would normally go to `app` and `api_serve
 - **Body:**
   ```json
   {
-    "public_key": "server_public_key_base64"
+    "public_key": "server_public_key_base64",
+    "key_id": "handle_from_step_1"
   }
   ```
-- **Response:** `ciphertext` in **base64** and `secret_fingerprint`. The shared secret itself never leaves the backend.
+- **Response:** `sid`, `nonce`, `ciphertext` in **base64** and `secret_fingerprint`.
+
+  The shared secret itself never leaves the backend. The `sid` is **derived**
+  from the secret and the transcript, not invented: both ends reach the same
+  value on their own, so a client cannot pick or fix one (QSLP/1 §7.4).
 
 
 
@@ -153,10 +162,13 @@ The `demo.html` page groups calls that would normally go to `app` and `api_serve
 - **Body:**
   ```json
   {
-    "ciphertext": "kyber_ciphertext_base64"
+    "ciphertext": "kyber_ciphertext_base64",
+    "nonce": "client_nonce_base64",
+    "key_id": "handle_from_step_1"
   }
   ```
-- **Response:** Decapsulation result: `secret_fingerprint`, which must match the one reported by the app side.
+- **Response:** `sid` and `secret_fingerprint`, which must match the ones the app side reported.
+- **409** if the `key_id` is unknown, expired, or already used: a key pair is good for exactly one exchange.
 
 
 
@@ -167,7 +179,8 @@ The `demo.html` page groups calls that would normally go to `app` and `api_serve
 - **Body:**
   ```json
   {
-    "message": "plaintext_message"
+    "message": "plaintext_message",
+    "sid": "session_identifier"
   }
   ```
 - **Response:** `encrypted_data`, `iv`, and `tag` (AES-256-GCM), all **base64**.
@@ -183,10 +196,13 @@ The `demo.html` page groups calls that would normally go to `app` and `api_serve
   {
     "encrypted_data": "base64_ciphertext",
     "iv": "base64_iv",
-    "tag": "base64_auth_tag"
+    "tag": "base64_auth_tag",
+    "sid": "session_identifier"
   }
   ```
 - **Response:** `message` field (plaintext).
+- **409** if the session is unknown or expired. There is no stored secret to
+  fall back on, which is the point.
 
 
 
@@ -236,10 +252,23 @@ A gitignored `custom/` directory is available for your own deploy scripts.
 
 This repository is a **proof of concept**: educational and demonstrative, **not** audited or intended for production use. Before any real deployment you would need at least:
 
-1. Authentication and authorization on endpoints.
-2. **HTTPS** everywhere.
-3. Proper protection for keys at rest.
-4. Key rotation policies.
+Done so far, following QSLP/1:
+
+- **No key material at rest.** Key pairs are ephemeral, the shared secret lives
+  only in the ephemeral store, and nothing is written to disk (§15.4).
+- **No secrets in logs or responses** (§15.2, §15.3). Responses carry a
+  fingerprint; the log redacts by whitelist, so a field added later cannot leak
+  by omission.
+- **Session identifiers are derived, not accepted** from the client (§7.4).
+
+Still missing, and it is a long list:
+
+1. Authentication of the endpoints. **The public key travels unsigned**, so
+   anyone in the middle can substitute it and read everything. This is the most
+   important one.
+2. Signatures and non-repudiation: there is no proof of who sent what.
+3. **HTTPS** everywhere, and CORS that is not `*`.
+4. Rate limiting and anti-replay.
 
 
 ## Contributing
@@ -256,7 +285,15 @@ project. Quick start:
 composer install && npm install
 composer verificar    # syntax, style and static analysis
 npm run formato       # front-end formatting
+
+docker compose up -d --build
+./scripts/prueba-e2e.sh    # end-to-end check against the running stack
 ```
+
+`scripts/prueba-e2e.sh` walks the whole flow and then checks what must **fail**:
+reusing an ephemeral key pair, inventing a session identifier, omitting it, and
+finding key material on disk or in the log. A happy path that passes says
+nothing about whether the defences are in place.
 
 The protocol itself is defined by the reference implementation,
 [ip5-kyber-poc](https://github.com/IP5-International-Platform-5/ip5-kyber-poc);

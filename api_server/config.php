@@ -1,22 +1,22 @@
 <?php
-# Paths for key material on the server side
-define('REQUESTS_LOG', __DIR__ . '/../logs/requests.log');
-define('KEYS_DIR', __DIR__ . '/keys');
-define('PUBLIC_KEY_PATH', KEYS_DIR . '/public.key');
-define('PRIVATE_KEY_PATH', KEYS_DIR . '/private.key');
-# Kyber + AES shared secret on the server (in production, only on this machine)
-define('SHARED_SECRET_PATH', KEYS_DIR . '/shared_secret.key');
 
-# Create keys directory if missing
-if (!file_exists(KEYS_DIR)) {
-    mkdir(KEYS_DIR, 0770, true);
-}
+# Key material lives in the ephemeral store, never on disk (QSLP/1 §15.4).
+require_once __DIR__ . '/../libs/session_store.php';
+define('REQUESTS_LOG', __DIR__ . '/../logs/requests.log');
+
 
 # Append one line to the request log
 function log_request($message) {
     $date = date('Y-m-d H:i:s');
     $logMessage = "[$date] $message\n";
-    file_put_contents(REQUESTS_LOG, $logMessage, FILE_APPEND | LOCK_EX);
+    # A log that cannot be written must never break the response. Without the
+    # silencing operator, PHP prints a warning before the headers go out, and
+    # every endpoint starts answering HTML followed by JSON, with its status
+    # code stuck at 200. Errors to the client are codes, never PHP notices
+    # (QSLP/1 §15.6).
+    if (@file_put_contents(REQUESTS_LOG, $logMessage, FILE_APPEND | LOCK_EX) === false) {
+        error_log('kyber: request log is not writable: ' . REQUESTS_LOG);
+    }
 }
 
 # Build a log-safe view of a JSON response body.

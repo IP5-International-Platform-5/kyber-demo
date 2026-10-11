@@ -41,6 +41,16 @@ RUN EXT_DIR="$(php -r 'echo ini_get("extension_dir");')" \
     && mv /tmp/oqsphp.so "${EXT_DIR}/" \
     && echo "extension=oqsphp" > /usr/local/etc/php/conf.d/docker-php-ext-oqsphp.ini
 
+# APCu da memoria compartida entre los procesos de php-fpm. Hace falta para que
+# el material de clave viva en memoria y no en ficheros: las sesiones de PHP
+# escriben en disco, que es justo lo que §15.4 y el paso 3 de §18 quieren evitar.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ${PHPIZE_DEPS} \
+    && pecl install apcu \
+    && docker-php-ext-enable apcu \
+    && apt-get purge -y --auto-remove ${PHPIZE_DEPS} \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /var/www/html
 
 COPY docker/php/docker-entrypoint.sh /usr/local/bin/kyber-docker-entrypoint.sh

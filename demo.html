@@ -256,6 +256,11 @@
             let serverPublicKey = null;
             let secretFingerprint = null;
             let ciphertext = null;
+            // Handle of the server's ephemeral key pair, the client nonce and the
+            // derived session identifier. None of them is chosen by the browser.
+            let keyId = null;
+            let nonce = null;
+            let sid = null;
 
             // Get the API base URL
             const getApiBaseUrl = () => {
@@ -359,6 +364,9 @@
                 document.getElementById('encryptAndSendBtn').disabled = true;
                 ciphertext = null;
                 secretFingerprint = null;
+                keyId = null;
+                nonce = null;
+                sid = null;
                 serverPublicKey = null;
 
                 try {
@@ -375,8 +383,10 @@
                     // If we got a public key, use it
                     else if (data.public_key) {
                         serverPublicKey = data.public_key;
+                        keyId = data.key_id;
 
-                        resultElement.innerHTML = `Server public key received and saved in the browser:<br>
+                        resultElement.innerHTML = `Ephemeral server public key received (key_id <code>${keyId}</code>).
+                        It is good for one exchange and the matching private key never touches disk:<br>
                         <br>${serverPublicKey}`;
                         resultElement.classList.add('success');
                         document.getElementById('encapsulatePublicKeyInput').value = serverPublicKey;
@@ -405,6 +415,10 @@
                 document.getElementById('encryptAndSendBtn').disabled = true;
                 ciphertext = null;
                 secretFingerprint = null;
+                // keyId NO se reinicia aquí: es la entrada de este paso, lo
+                // entregó el paso 1. El nonce y el sid sí, porque se derivan ahora.
+                nonce = null;
+                sid = null;
 
                 const publicKeyPayload = document.getElementById('encapsulatePublicKeyInput').value.trim();
 
@@ -424,7 +438,8 @@
                             'Content-Type': 'application/json'
                         },
                         body: JSON.stringify({
-                            public_key: publicKeyPayload
+                            public_key: publicKeyPayload,
+                            key_id: keyId
                         })
                     }));
                     const data = await response.json();
@@ -440,6 +455,8 @@
                     else if (data.ciphertext && data.secret_fingerprint) {
                         ciphertext = data.ciphertext;
                         secretFingerprint = data.secret_fingerprint;
+                        nonce = data.nonce;
+                        sid = data.sid;
 
                         resultElement.innerHTML = `Created and encapsulated on the client:<br><br>
                         Shared secret fingerprint (the secret itself never leaves the backend): <span class="shared-secret-value">${secretFingerprint}</span>
@@ -488,7 +505,9 @@
                             'Content-Type': 'application/json'
                         },
                         body: JSON.stringify({
-                            ciphertext: ciphertextPayload
+                            ciphertext: ciphertextPayload,
+                            nonce: nonce,
+                            key_id: keyId
                         })
                     }));
                     const data = await response.json();
@@ -547,7 +566,8 @@
                             'Content-Type': 'application/json'
                         },
                         body: JSON.stringify({
-                            message: message
+                            message: message,
+                            sid: sid
                         })
                     }));
                     const data = await response.json();
@@ -612,7 +632,8 @@
                         body: JSON.stringify({
                             encrypted_data: encryptedData,
                             iv: encryptionIv,
-                            tag: encryptionTag
+                            tag: encryptionTag,
+                            sid: sid
                         })
                     }));
                     const data = await response.json();
