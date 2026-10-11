@@ -2,7 +2,7 @@
 
 Key exchange and message encryption using **ML-KEM-768** (FIPS 203, the standardised form of Kyber), exposed as a PHP API with an interactive web demo.
 
-> **Proof of concept.** This repository illustrates a Kyber-based key exchange and message flow for learning and experimentation. It is **not** a hardened product: there is no authentication on the APIs, there are no signatures, and many operational concerns are out of scope. **Do not** deploy it as-is for real users or sensitive data. See [Security](#security).
+> **Proof of concept.** This repository illustrates a Kyber-based key exchange and message flow for learning and experimentation. It is **not** a hardened product: there is no authentication on the APIs, keys are persistent and live on disk in plain folders, and many operational concerns are out of scope. **Do not** deploy it as-is for real users or sensitive data. See [Security](#security).
 
 
 
@@ -147,11 +147,7 @@ The `demo.html` page groups calls that would normally go to `app` and `api_serve
     "key_id": "handle_from_step_1"
   }
   ```
-- **Response:** `sid`, `nonce`, `ciphertext` in **base64** and `secret_fingerprint`.
-
-  The shared secret itself never leaves the backend. The `sid` is **derived**
-  from the secret and the transcript, not invented: both ends reach the same
-  value on their own, so a client cannot pick or fix one (QSLP/1 §7.4).
+- **Response:** `ciphertext` in **base64** and `secret_fingerprint`. The shared secret itself never leaves the backend.
 
 
 

@@ -67,6 +67,22 @@ function secretFingerprint($shared_secret) {
 }
 
 /**
+ * Fingerprint of a shared secret, for display only.
+ *
+ * Lets both ends check that they derived the same secret without either of them
+ * sending it. Truncated and domain-separated on purpose: it identifies the
+ * session, it does not reconstruct the key.
+ *
+ * @param string $shared_secret Raw shared secret (binary)
+ * @return string 16 hex characters, grouped in fours for visual comparison
+ */
+function secretFingerprint($shared_secret) {
+	$digest = hash('sha3-256', 'kyber-demo fingerprint v1' . $shared_secret, true);
+
+	return implode(' ', str_split(bin2hex(substr($digest, 0, 8)), 4));
+}
+
+/**
  * Encapsulate a shared secret using the remote public key.
  *
  * @param string $remote_public_key Remote public key (base64)
@@ -147,7 +163,7 @@ function decapsulateSharedSecret($ciphertext, $private_key) {
 		}
 
 		return [
-			'shared_secret' => $shared_secret
+			'secret_fingerprint' => secretFingerprint($shared_secret)
 		];
 	} catch (Exception $e) {
 		return [
