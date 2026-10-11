@@ -43,3 +43,6 @@ custom/
 
 # PHP session dumps
 sess_*
+
+# Identidades de firma: nunca al repositorio
+identities/

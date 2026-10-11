@@ -32,7 +32,7 @@ class OQS_KEYENCAPSULATION
     public int $length_public_key;
 
     /** Longitud en bytes de la clave privada del algoritmo. */
-    public int $length_secret_key;
+    public int $length_private_key;
 
     /** Longitud en bytes del ciphertext del KEM. */
     public int $length_ciphertext;
@@ -65,8 +65,45 @@ class OQS_KEM extends OQS_KEYENCAPSULATION
 {
 }
 
+/**
+ * Firmador de liboqs. Misma convención que el encapsulador: los resultados
+ * salen por referencia y el retorno es el código de estado.
+ */
+class OQS_SIGNATURE
+{
+    /** Longitud en bytes de la clave pública del algoritmo. */
+    public int $length_public_key;
+
+    /** Longitud en bytes de la clave privada del algoritmo. */
+    public int $length_private_key;
+
+    /** Longitud máxima en bytes de la firma. */
+    public int $length_signature;
+
+    public function __construct(string $algorithm) {}
+
+    /**
+     * @param string $public_key  se rellena con la clave pública (binario crudo)
+     * @param string $private_key se rellena con la clave privada (binario crudo)
+     */
+    public function keypair(&$public_key, &$private_key): int {}
+
+    /**
+     * @param string $signature se rellena con la firma (binario crudo)
+     */
+    public function sign(&$signature, string $message, string $private_key): int {}
+
+    public function verify(string $message, string $signature, string $public_key): int {}
+}
+
 /** Código de retorno de éxito de liboqs. */
 define('OQS_SUCCESS', 0);
 
-/** Comprueba si liboqs tiene habilitado un algoritmo KEM concreto. */
-function OQS_KEM_alg_is_enabled(string $algorithm): bool {}
+/**
+ * Comprueba si liboqs tiene habilitado un algoritmo concreto.
+ *
+ * Devuelven 1 o 0, no booleanos: el código los compara con `=== 1`.
+ */
+function OQS_KEM_alg_is_enabled(string $algorithm): int {}
+
+function OQS_SIG_alg_is_enabled(string $algorithm): int {}
