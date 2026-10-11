@@ -1,8 +1,10 @@
 name: CI
 
 on:
+  # Sin filtro de rama en los PR: un PR apilado sobre otra rama de trabajo
+  # también tiene que comprobarse. Con `branches: [main]` se quedaba sin CI
+  # justo mientras se revisa, que es cuando hace falta.
   pull_request:
-    branches: [main]
   push:
     branches: [main]
   workflow_dispatch:
