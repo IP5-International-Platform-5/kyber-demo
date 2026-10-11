@@ -8,6 +8,8 @@ header('Content-Type: application/json');
 
 require_once __DIR__ . '/../libs/kyber_utils.php';
 require_once __DIR__ . '/../libs/identity.php';
+// nodeId(): el identificador autocertificante que los dos extremos ponen dentro de receipt_core.
+require_once __DIR__ . '/../libs/canonical.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
@@ -97,9 +99,15 @@ try {
 
     $sid = deriveSid($result['shared_secret'], $th2);
 
+    // La identidad del par viaja con la sesión: cada registro que acepte este
+    // nodo hay que comprobarlo contra la identidad que completó *este*
+    // handshake, y no contra la clave que el mensaje diga (§11.1). La ventana
+    // anti-replay vive aquí también, porque es por sesión (§8.2).
     storePut('srv', $sid, [
         'shared_secret' => $result['shared_secret'],
         'th2' => $th2,
+        'peer_identity' => $identity_c,
+        'replay' => ['high' => -1, 'seen' => []],
     ]);
 
     # One decapsulation per key pair. The private key dies here.
@@ -121,6 +129,7 @@ try {
         'client_identity_fingerprint' => identityFingerprint($identity_c),
         'identity_fingerprint' => $fingerprint_s,
         'client_signature_verified' => true,
+        'client_node_id' => nodeId($identity_c),
     ]));
 } catch (Exception $e) {
     http_response_code(500);

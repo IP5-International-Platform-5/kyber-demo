@@ -14,4 +14,12 @@ chmod 0775 /var/www/html/logs 2>/dev/null || true
 mkdir -p /var/www/html/identities
 chown -R www-data:www-data /var/www/html/identities 2>/dev/null || true
 chmod 0700 /var/www/html/identities 2>/dev/null || true
+
+# El diario encadenado, los recibos y las raíces de época (§11.4, §19.2). A
+# diferencia de las identidades, esto se deja legible a propósito: un diario
+# que solo puede leer quien lo escribe no sirve para auditar a nadie. Lo que no
+# contiene, por norma, es texto en claro ni material de clave (§15.2).
+mkdir -p /var/www/html/journal/receipts /var/www/html/journal/epochs
+chown -R www-data:www-data /var/www/html/journal 2>/dev/null || true
+chmod -R 0755 /var/www/html/journal 2>/dev/null || true
 exec docker-php-entrypoint "$@"

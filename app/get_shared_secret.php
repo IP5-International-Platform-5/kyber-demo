@@ -8,6 +8,8 @@ header('Content-Type: application/json');
 
 require_once __DIR__ . '/../libs/kyber_utils.php';
 require_once __DIR__ . '/../libs/identity.php';
+// nodeId(): el identificador autocertificante que los dos extremos ponen dentro de receipt_core.
+require_once __DIR__ . '/../libs/canonical.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
@@ -100,9 +102,15 @@ $signature_c = signTranscript($identity_c['private'], $th2);
 
 $sid = deriveSid($result['shared_secret'], $th2);
 
+// La identidad del par y el contador de registros viajan con la sesión porque
+// receipt_core nombra a los dos nodos y su propio número de secuencia (§11.1):
+// una firma que no dice para quién era se puede reenviar a un tercero como si
+// hubiera sido para él.
 storePut('app', $sid, [
     'shared_secret' => $result['shared_secret'],
     'th2' => $th2,
+    'peer_identity' => $identity_s,
+    'next_seq' => 0,
 ]);
 
 response(json_encode([
@@ -116,6 +124,8 @@ response(json_encode([
     'server_signature_verified' => true,
     'secret_fingerprint' => secretFingerprint($result['shared_secret']),
     'confirmation' => confirmationTag($result['shared_secret'], $th2),
+    'node_id' => nodeId($identity_c['public']),
+    'server_node_id' => nodeId($identity_s),
 ]));
 
 function response($body) {
