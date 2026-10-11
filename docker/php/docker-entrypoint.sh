@@ -15,11 +15,23 @@ mkdir -p /var/www/html/identities
 chown -R www-data:www-data /var/www/html/identities 2>/dev/null || true
 chmod 0700 /var/www/html/identities 2>/dev/null || true
 
-# El diario encadenado, los recibos y las raíces de época (§11.4, §19.2). A
-# diferencia de las identidades, esto se deja legible a propósito: un diario
-# que solo puede leer quien lo escribe no sirve para auditar a nadie. Lo que no
-# contiene, por norma, es texto en claro ni material de clave (§15.2).
+# El diario encadenado, los recibos y las raíces de época (§11.4, §19.2). Nada
+# de esto contiene texto en claro ni material de clave (§15.2), pero no todo
+# tiene el mismo público:
+#
+#   journal/*.jsonl      el diario y los checkpoints firmados. Legibles: son lo
+#                        que se publica, y un diario que solo puede leer quien
+#                        lo escribe no sirve para auditar a nadie (§12, §19.2).
+#   journal/receipts/    los registros de recibo llevan from, to y ts, o sea
+#                        quién habló con quién y cuándo. Eso es metadato de
+#                        comunicaciones: se queda en 0750, mínima exposición.
+#   journal/epochs/      igual, por coherencia; lo que sale al exterior de una
+#                        época es su raíz, dentro del paquete de evidencia.
+mkdir -p /var/www/html/journal
+chown www-data:www-data /var/www/html/journal 2>/dev/null || true
+chmod 0755 /var/www/html/journal 2>/dev/null || true
+
 mkdir -p /var/www/html/journal/receipts /var/www/html/journal/epochs
-chown -R www-data:www-data /var/www/html/journal 2>/dev/null || true
-chmod -R 0755 /var/www/html/journal 2>/dev/null || true
+chown -R www-data:www-data /var/www/html/journal/receipts /var/www/html/journal/epochs 2>/dev/null || true
+chmod 0750 /var/www/html/journal/receipts /var/www/html/journal/epochs 2>/dev/null || true
 exec docker-php-entrypoint "$@"

@@ -275,13 +275,24 @@ for d in api_server/keys app/keys; do
     [ "$n" = "0" ] && ok "$d sin ficheros" || fail "$d contiene $n fichero(s)"
 done
 
-for f in "$REPO"/journal/*.jsonl "$REPO"/journal/receipts/*/*.json "$REPO"/journal/epochs/*.json; do
-    [ -f "$f" ] || continue
-    if grep -qF "$MSG" "$f" 2>/dev/null; then
-        fail "$(basename "$f") contiene el texto en claro"
+# Los recibos y las épocas son 0750 y desde el anfitrión no se pueden leer, así
+# que esto se revisa desde dentro del contenedor. Y se cuenta lo examinado: un
+# glob que no encuentra nada imprimiría un OK sin haber comprobado nada, que es
+# peor que no tener la comprobación.
+if docker exec kyber-php true 2>/dev/null; then
+    revisados=$(docker exec kyber-php sh -c 'ls -1 /var/www/html/journal/*.jsonl /var/www/html/journal/receipts/*/*.json /var/www/html/journal/epochs/*.json 2>/dev/null | wc -l')
+    con_mensaje=$(docker exec kyber-php grep -rlF -- "$MSG" /var/www/html/journal 2>/dev/null | wc -l)
+
+    if [ "${revisados:-0}" -lt 3 ]; then
+        fail "solo se han examinado ${revisados:-0} ficheros del diario: la comprobación no vale"
+    elif [ "${con_mensaje:-1}" != "0" ]; then
+        fail "$con_mensaje fichero(s) del diario contienen el texto en claro"
+    else
+        ok "los $revisados ficheros de journal/ guardan hashes, no mensajes (§15.2, §19.2)"
     fi
-done
-ok "el diario, los recibos y las épocas guardan hashes, no mensajes (§15.2, §19.2)"
+else
+    printf '  omite  revisión de journal/: hace falta el contenedor (los recibos son 0750)\n'
+fi
 
 if [ -f "$REPO/journal/srv.jsonl" ]; then
     python3 - "$REPO/journal/srv.jsonl" <<'PY'
