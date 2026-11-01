@@ -1,6 +1,6 @@
 <?php
 
-# Include CORS headers, the ephemeral store and the signing identity
+// Include CORS headers, the ephemeral store and the signing identity
 require_once __DIR__ . '/cors_headers.php';
 require_once __DIR__ . '/config.php';
 
@@ -10,11 +10,13 @@ require_once __DIR__ . '/../libs/kyber_utils.php';
 require_once __DIR__ . '/../libs/identity.php';
 // nodeId(): el identificador autocertificante que los dos extremos ponen dentro de receipt_core.
 require_once __DIR__ . '/../libs/canonical.php';
+// Y el log: una identidad que no consta publicada no se acepta (§12.1).
+require_once __DIR__ . '/../libs/transparency.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
     response(json_encode([
-        'error' => 'Method not allowed. Use POST.'
+        'error' => 'Method not allowed. Use POST.',
     ]));
     exit;
 }
@@ -25,7 +27,7 @@ foreach (['public_key', 'key_id', 'client_nonce', 'server_nonce', 'identity', 's
     if (!isset($data[$field]) || $data[$field] === '') {
         http_response_code(400);
         response(json_encode([
-            'error' => "Incomplete offer. The \"$field\" field is required."
+            'error' => "Incomplete offer. The \"$field\" field is required.",
         ]));
         exit;
     }
@@ -44,10 +46,42 @@ if ($public_key === false || $nonce_c === false || $nonce_s === false
     exit;
 }
 
-# 1. Is this the party we spoke to before? Trust on first use: the first
-#    exchange is unauthenticated and the fingerprint has to be checked out of
-#    band. From then on, a changed identity is refused. A real deployment
-#    replaces this with certificates and a transparency log (§5.3, §12.1).
+// 0. ¿Consta esa identidad en el log de transparencia?
+//
+//    Esto va ANTES de fijarla: el fijado al primer uso deja sin autenticar
+//    precisamente la primera vez, que es cuando un atacante querría colocar su
+//    clave. Exigir la prueba de inclusión cierra ese hueco a medias —la
+//    identidad tiene que estar publicada, así que suplantar obliga a dejarlo
+//    escrito— y es lo que la §12.1 pide: un certificado sin prueba de
+//    inclusión se rechaza en el handshake.
+$log_key = logPublicKey();
+
+if ($log_key === null) {
+    // Fallar cerrado: sin la clave del log no se puede comprobar nada, y
+    // seguir adelante sería aceptar la identidad por no poder mirarla.
+    http_response_code(503);
+    response(json_encode([
+        'error' => 'No se conoce la clave pública del log de transparencia, así que no se puede '
+            . 'comprobar que la identidad del servidor esté publicada (§12.1).',
+    ]));
+    exit;
+}
+
+$published = verifyPublishedIdentity($identity_s, $data['identity_log'] ?? null, $log_key);
+
+if (!$published['ok']) {
+    http_response_code(409);
+    response(json_encode([
+        'error' => 'La identidad del servidor no consta en el log de transparencia. Se rechaza.',
+        'detail' => $published['detail'],
+    ]));
+    exit;
+}
+
+// 1. Is this the party we spoke to before? Trust on first use: the first
+//    exchange is unauthenticated and the fingerprint has to be checked out of
+//    band. From then on, a changed identity is refused. A real deployment
+//    replaces this with certificates and a transparency log (§5.3, §12.1).
 $pinned = IDENTITY_DIR . '/srv.pinned';
 
 if (is_file($pinned)) {
@@ -64,13 +98,13 @@ if (is_file($pinned)) {
     }
 }
 
-# 2. Does the signature actually cover this ephemeral key and these nonces?
+// 2. Does the signature actually cover this ephemeral key and these nonces?
 $th1 = transcript1($nonce_c, $nonce_s, (string) $data['key_id'], $public_key, $identity_s);
 
 if (!verifyTranscript($identity_s, $th1, $signature)) {
     http_response_code(409);
     response(json_encode([
-        'error' => 'The signature does not cover this offer. The key may have been substituted in transit.'
+        'error' => 'The signature does not cover this offer. The key may have been substituted in transit.',
     ]));
     exit;
 }
@@ -96,7 +130,20 @@ try {
     exit;
 }
 
-# 3. Answer under our own identity, chained to the server's offer.
+try {
+    // Nuestra identidad también se publica: la exigencia es simétrica, y el
+    // servidor rechazará la respuesta si no viene con su prueba.
+    $published_c = publishIdentity('app');
+} catch (Throwable $e) {
+    http_response_code(503);
+    error_log('get_shared_secret: no se pudo publicar la identidad: ' . $e->getMessage());
+    response(json_encode([
+        'error' => 'No se pudo publicar la identidad de este nodo en el log de transparencia.',
+    ]));
+    exit;
+}
+
+// 3. Answer under our own identity, chained to the server's offer.
 $th2 = transcript2($th1, $result['ciphertext'], $identity_c['public']);
 $signature_c = signTranscript($identity_c['private'], $th2);
 
@@ -126,9 +173,12 @@ response(json_encode([
     'confirmation' => confirmationTag($result['shared_secret'], $th2),
     'node_id' => nodeId($identity_c['public']),
     'server_node_id' => nodeId($identity_s),
+    'server_identity_in_log' => $published['detail'],
+    'identity_log' => $published_c,
 ]));
 
-function response($body) {
+function response($body)
+{
     log_response($body);
     echo $body;
 }

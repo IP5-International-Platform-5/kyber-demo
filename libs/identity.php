@@ -25,10 +25,18 @@ if (!defined('IDENTITY_DIR')) {
 /**
  * Load this side's identity, creating it on first use.
  *
- * @param string $side "app" or "srv"
+ * @param string $side "app", "srv" o "log"
+ *
  * @return array{public: string, private: string} Raw key material
  */
-function loadOrCreateIdentity($side) {
+function loadOrCreateIdentity($side)
+{
+    if (!in_array($side, ['app', 'srv', 'log'], true)) {
+        // Lista cerrada: este parámetro forma parte de un nombre de fichero, y
+        // los tres roles del demostrador son los únicos que tienen identidad.
+        throw new InvalidArgumentException('Rol de identidad desconocido: ' . $side);
+    }
+
     $pub = IDENTITY_DIR . "/$side.pub";
     $sec = IDENTITY_DIR . "/$side.key";
 
@@ -53,8 +61,8 @@ function loadOrCreateIdentity($side) {
 
     file_put_contents($pub, base64_encode($public));
     file_put_contents($sec, base64_encode($private));
-    # The private half is the whole point of an identity: if a third party can
-    # sign in your name there is no non-repudiation, only a claim (§5.2).
+    // The private half is the whole point of an identity: if a third party can
+    // sign in your name there is no non-repudiation, only a claim (§5.2).
     @chmod($sec, 0600);
     @chmod($pub, 0644);
 
@@ -65,9 +73,11 @@ function loadOrCreateIdentity($side) {
  * Short, readable form of a public identity, for a human to compare.
  *
  * @param string $publicKey Raw ML-DSA public key
+ *
  * @return string 16 hex characters in groups of four
  */
-function identityFingerprint($publicKey) {
+function identityFingerprint($publicKey)
+{
     $digest = hash('sha3-256', 'QSLP1-demo identity' . $publicKey, true);
 
     return implode(' ', str_split(bin2hex(substr($digest, 0, 8)), 4));
@@ -80,7 +90,8 @@ function identityFingerprint($publicKey) {
  * which is simpler and has the same property that matters here: one and only
  * one byte string per set of fields.
  */
-function bind(array $parts) {
+function bind(array $parts)
+{
     $out = '';
     foreach ($parts as $part) {
         $out .= pack('N', strlen($part)) . $part;
@@ -92,7 +103,8 @@ function bind(array $parts) {
 /**
  * TH1 — covers the server's offer. What its signature commits to.
  */
-function transcript1($nonceClient, $nonceServer, $keyId, $kemPublicKey, $identityServer) {
+function transcript1($nonceClient, $nonceServer, $keyId, $kemPublicKey, $identityServer)
+{
     return hash('sha3-256', 'QSLP1-demo TH1' . bind([
         $nonceClient, $nonceServer, $keyId, $kemPublicKey, $identityServer,
     ]), true);
@@ -102,14 +114,16 @@ function transcript1($nonceClient, $nonceServer, $keyId, $kemPublicKey, $identit
  * TH2 — adds the client's answer. Chains to TH1, so a reply cannot be lifted
  * out of one handshake and replayed into another.
  */
-function transcript2($th1, $ciphertext, $identityClient) {
+function transcript2($th1, $ciphertext, $identityClient)
+{
     return hash('sha3-256', 'QSLP1-demo TH2' . $th1 . bind([$ciphertext, $identityClient]), true);
 }
 
 /**
  * @return string Raw signature
  */
-function signTranscript($privateKey, $transcriptHash) {
+function signTranscript($privateKey, $transcriptHash)
+{
     $sig = new OQS_SIGNATURE(SIG_ALG);
     $signature = '';
 
@@ -123,7 +137,8 @@ function signTranscript($privateKey, $transcriptHash) {
 /**
  * @return bool Whether the signature is valid for this transcript and identity.
  */
-function verifyTranscript($publicKey, $transcriptHash, $signature) {
+function verifyTranscript($publicKey, $transcriptHash, $signature)
+{
     if ($publicKey === '' || $signature === '') {
         return false;
     }
@@ -133,7 +148,7 @@ function verifyTranscript($publicKey, $transcriptHash, $signature) {
 
         return $sig->verify($transcriptHash, $signature, $publicKey) === OQS_SUCCESS;
     } catch (Throwable $e) {
-        # A malformed key or signature throws rather than returning a status.
+        // A malformed key or signature throws rather than returning a status.
         return false;
     }
 }
@@ -142,7 +157,8 @@ function verifyTranscript($publicKey, $transcriptHash, $signature) {
  * Confirmation tag: proof that this side derived the same keys from the same
  * transcript. QSLP/1 §7.5 sends it as FINISHED.
  */
-function confirmationTag($sharedSecret, $th2) {
+function confirmationTag($sharedSecret, $th2)
+{
     $kConf = hash_hkdf('sha3-256', $sharedSecret, 32, 'QSLP1 conf' . $th2);
 
     return bin2hex(substr(hash_hmac('sha3-256', $th2, $kConf, true), 0, 16));
@@ -161,6 +177,7 @@ function confirmationTag($sharedSecret, $th2) {
  * @param string $privateKey Clave privada ML-DSA cruda
  * @param string $domain Etiqueta de contexto, p. ej. "QSLP1-demo RC"
  * @param string $message Bytes con los que se compromete
+ *
  * @return string Firma cruda
  */
 function signDomain($privateKey, $domain, $message)
@@ -173,6 +190,7 @@ function signDomain($privateKey, $domain, $message)
  * @param string $domain Etiqueta de contexto bajo la que se tuvo que firmar
  * @param string $message Bytes que la firma tiene que cubrir
  * @param string $signature Firma cruda
+ *
  * @return bool
  */
 function verifyDomain($publicKey, $domain, $message, $signature)

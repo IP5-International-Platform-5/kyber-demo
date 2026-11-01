@@ -14,6 +14,12 @@ services:
       context: .
       dockerfile: docker/nginx/Dockerfile
     container_name: kyber-web
+    # La configuración de Nginx se monta desde el repositorio: añadir una ruta
+    # nueva (como la del log de transparencia) no debería obligar a reconstruir
+    # la imagen, y menos en una máquina donde construir exige --network=host.
+    # El `dist/` sigue dentro de la imagen, que es lo que la hace reproducible.
+    volumes:
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     ports:
       - "8080:80"
     depends_on:

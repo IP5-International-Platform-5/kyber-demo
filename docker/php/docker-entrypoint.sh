@@ -34,4 +34,12 @@ chmod 0755 /var/www/html/journal 2>/dev/null || true
 mkdir -p /var/www/html/journal/receipts /var/www/html/journal/epochs
 chown -R www-data:www-data /var/www/html/journal/receipts /var/www/html/journal/epochs 2>/dev/null || true
 chmod 0750 /var/www/html/journal/receipts /var/www/html/journal/epochs 2>/dev/null || true
+# Log de transparencia (§12) y memoria del auditor. El log es público por
+# definición —la seguridad no depende de que el registro sea secreto— así que
+# queda legible; el auditor guarda aparte lo que ha visto, porque si su memoria
+# viviera dentro del log, un log que miente podría borrarla.
+mkdir -p /var/www/html/transparency /var/www/html/auditor
+chown -R www-data:www-data /var/www/html/transparency /var/www/html/auditor 2>/dev/null || true
+chmod 0755 /var/www/html/transparency /var/www/html/auditor 2>/dev/null || true
+
 exec docker-php-entrypoint "$@"

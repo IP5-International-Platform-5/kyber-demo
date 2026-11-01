@@ -22,7 +22,7 @@
         }
     },
     "scripts": {
-        "sintaxis": "find api_server app libs public scripts -name '*.php' -print0 | xargs -0 -n1 -P4 php -l > /dev/null",
+        "sintaxis": "find api_server app libs log public scripts -name '*.php' -print0 | xargs -0 -n1 -P4 php -l > /dev/null",
         "estilo": "php-cs-fixer check --diff",
         "estilo:aplicar": "php-cs-fixer fix",
         "analisis": "phpstan analyse --memory-limit=512M",

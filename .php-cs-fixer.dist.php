@@ -24,6 +24,7 @@ $finder = PhpCsFixer\Finder::create()
         __DIR__ . '/api_server',
         __DIR__ . '/app',
         __DIR__ . '/libs',
+        __DIR__ . '/log',
         __DIR__ . '/public',
         // El verificador de evidencia y las comprobaciones del no repudio.
         __DIR__ . '/scripts',
