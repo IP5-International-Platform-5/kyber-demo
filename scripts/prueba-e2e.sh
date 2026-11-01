@@ -226,6 +226,120 @@ C=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/api_server/decrypt_messag
       -d "$(python3 -c "import json;print(json.dumps({'encrypted_data':'$ED','iv':'$IV','tag':'$TAG','sid':'0000000000000000000000000000000000000000'}))")")
 [ "$C" = "409" ] && ok "un criptograma con un sid ajeno se rechaza (409)" || fail "sid ajeno admitido" "HTTP $C"
 
+echo "== Log de transparencia (§12) =="
+CP=$(curl -s "$B/log/checkpoint")
+LOG_ID=$(echo "$CP" | jp log_identity.log_id)
+[ -n "$LOG_ID" ] && ok "el log se presenta con identidad propia ($LOG_ID)" || fail "el log no tiene identidad" "$CP"
+[ "$LOG_ID" != "$(echo "$R3" | j client_node_id)" ] && ok "la identidad del log no es la del nodo central" || fail "el log y el nodo central comparten identidad"
+[ -n "$(echo "$CP" | jp checkpoint.signature)" ] && ok "el checkpoint del log viene firmado" || fail "checkpoint sin firma" "$CP"
+TAM=$(echo "$CP" | jp checkpoint.tree_size)
+[ "${TAM:-0}" -ge 2 ] && ok "el checkpoint lleva el contador total de entradas ($TAM)" || fail "contador ausente o vacío" "$TAM"
+[ -n "$(echo "$CP" | jp checkpoint.acts_root)" ] && ok "y la raíz del árbol de actos" || fail "sin raíz de actos"
+
+ENTRADAS=$(curl -s "$B/log/entries?type=identity&count=10")
+[ "$(echo "$ENTRADAS" | jp tree_size)" = "$TAM" ] && ok "las entradas del log son públicas (§12.4)" || fail "el log no publica sus entradas" "$ENTRADAS"
+
+PRUEBA=$(curl -s "$B/log/proof?seq=0")
+[ -n "$(echo "$PRUEBA" | jp inclusion.signature)" ] && ok "la prueba de inclusión viene firmada por el log" || fail "prueba sin firma" "$PRUEBA"
+CONSIS=$(curl -s "$B/log/consistency?from_size=1")
+[ -n "$(echo "$CONSIS" | jp to_root)" ] && ok "el log entrega pruebas de consistencia" || fail "sin prueba de consistencia" "$CONSIS"
+
+echo "== El handshake exige que la identidad conste en el log (§12.1) =="
+[ -n "$(echo "$R1" | jp identity_log.inclusion.signature)" ] && ok "la oferta del servidor viaja con su prueba de publicación" || fail "oferta sin prueba de publicación"
+[ -n "$(echo "$R2" | j server_identity_in_log)" ] && ok "el cliente comprobó que la identidad del servidor consta" || fail "el cliente no comprobó el log" "$R2"
+[ -n "$(echo "$R3" | j client_identity_in_log)" ] && ok "y el servidor comprobó la del cliente" || fail "el servidor no comprobó el log" "$R3"
+
+NC3=$(python3 -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())")
+R=$(curl -s -X POST "$B/api_server/get_public_key" -H 'Content-Type: application/json' -d "{\"client_nonce\":\"$NC3\"}")
+PK3=$(echo "$R" | j public_key); K3=$(echo "$R" | j key_id); NS3=$(echo "$R" | j server_nonce)
+ID3=$(echo "$R" | j identity); SIG3=$(echo "$R" | j signature)
+
+SIN_PRUEBA=$(python3 -c "
+import json
+print(json.dumps({'public_key': '$PK3', 'key_id': '$K3', 'client_nonce': '$NC3',
+                  'server_nonce': '$NS3', 'identity': '$ID3', 'signature': '$SIG3'}))")
+C=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/app/get_shared_secret" -H 'Content-Type: application/json' -d "$SIN_PRUEBA")
+[ "$C" = "409" ] && ok "una oferta sin prueba de publicación se rechaza (409)" || fail "oferta sin prueba admitida" "HTTP $C"
+
+CON_PRUEBA_AJENA=$(python3 -c "
+import json, sys
+oferta = json.loads(sys.argv[1])
+prueba = json.loads(sys.argv[2])
+oferta['identity_log'] = prueba
+print(json.dumps(oferta))" "$SIN_PRUEBA" "$(echo "$R2" | jp identity_log)")
+C=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/app/get_shared_secret" -H 'Content-Type: application/json' -d "$CON_PRUEBA_AJENA")
+[ "$C" = "409" ] && ok "la prueba de OTRA identidad no sirve (409)" || fail "prueba ajena admitida" "HTTP $C"
+
+echo "== Actos de autoridad y no ocurrencia (§12.2, §19.5) =="
+NODO_CLIENTE=$(echo "$R3" | j client_node_id)
+ACTOS=$(curl -s "$B/log/acts?node_id=$NODO_CLIENTE")
+[ "$(echo "$ACTOS" | jp acts_count)" = "0" ] && ok "no consta ningún acto contra el cliente" || fail "hay actos inesperados" "$ACTOS"
+[ -n "$(echo "$ACTOS" | jp proof.bitmap)" ] && ok "y eso se demuestra: prueba de NO inclusión (§19.5)" || fail "sin prueba de no inclusión" "$ACTOS"
+[ "$(echo "$ACTOS" | jp proof.value)" = "" ] && ok "la hoja del árbol disperso está vacía, como debe" || fail "la hoja no está vacía"
+
+C=$(curl -s -o /dev/null -w '%{http_code}' "$B/log/acts?node_id=no-es-un-node-id")
+[ "$C" = "400" ] && ok "un node_id mal formado se rechaza (400)" || fail "node_id inválido admitido" "HTTP $C"
+
+echo "== Auditor independiente y vista dividida (§12.3) =="
+if docker exec kyber-php true 2>/dev/null; then
+    audita() { docker exec kyber-php php /var/www/html/scripts/auditar-log.php "$@"; }
+
+    SALIDA=$(audita --reiniciar http://web 2>&1); CODIGO=$?
+    [ "$CODIGO" = "0" ] && ok "el auditor acepta el log en su primera visita" || fail "el auditor falla de entrada" "$(echo "$SALIDA" | tail -3)"
+    echo "$SALIDA" | grep -q 'Primera visita' && ok "y dice que todavía no tiene con qué contrastar" || fail "el informe no distingue la primera visita"
+
+    curl -s -o /dev/null -X POST "$B/api_server/anchor_epoch" -H 'Content-Type: application/json' -d '{"force":true}'
+    SALIDA=$(audita http://web 2>&1); CODIGO=$?
+    [ "$CODIGO" = "0" ] && ok "tras crecer el log, la vista sigue siendo consistente" || fail "el auditor ve una inconsistencia que no hay" "$(echo "$SALIDA" | tail -3)"
+    echo "$SALIDA" | tr '\n' ' ' | grep -q 'creció sin' && ok "el informe lo dice con esas palabras" || fail "el informe no explica la consistencia"
+
+    # Reescribir una hoja ya cubierta por un checkpoint firmado: el log puede
+    # firmar la vista nueva, pero entonces sus dos firmas se contradicen.
+    docker exec -u www-data kyber-php cp /var/www/html/transparency/log.jsonl /tmp/log-original.jsonl
+    docker exec -u www-data kyber-php sh -c "php -r '
+        \$path = \"/var/www/html/transparency/log.jsonl\";
+        \$lines = explode(\"\n\", trim(file_get_contents(\$path)));
+        \$leaf = json_decode(\$lines[1], true);
+        \$leaf[\"ts\"] = \"2020-01-01T00:00:00Z\";
+        \$lines[1] = json_encode(\$leaf, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        file_put_contents(\$path, implode(\"\n\", \$lines) . \"\n\");'"
+
+    SALIDA=$(audita http://web 2>&1); CODIGO=$?
+    [ "$CODIGO" = "1" ] && ok "reescribir el log hace que el auditor lo rechace" || fail "la reescritura pasa desapercibida" "código $CODIGO"
+    echo "$SALIDA" | tr '\n' ' ' | grep -q 'VISTA DIVIDIDA' && ok "y lo llama por su nombre: vista dividida" || fail "el informe no nombra la vista dividida"
+    echo "$SALIDA" | tr '\n' ' ' | grep -q 'no se guarda' && ok "el auditor conserva el checkpoint anterior, que es la prueba" || fail "el auditor no conserva la prueba"
+
+    GOSSIP=$(curl -s -X POST "$B/log/gossip" -H 'Content-Type: application/json' \
+        -d "$(python3 -c "
+import json, subprocess
+visto = subprocess.run(['docker', 'exec', 'kyber-php', 'cat', '/var/www/html/auditor/checkpoints-vistos.jsonl'],
+                       capture_output=True, text=True).stdout.strip().split('\n')[-1]
+print(json.dumps({'checkpoint': json.loads(visto)}))")")
+    [ "$(echo "$GOSSIP" | jp verdict.split_view)" = "True" ] && ok "el gossip también detecta la divergencia" || fail "el gossip no la detecta" "$GOSSIP"
+    [ -n "$(echo "$GOSSIP" | jp split_view_proof.a.signature)" ] && ok "y devuelve las dos firmas juntas como prueba" || fail "sin prueba agrupada"
+
+    docker exec -u www-data kyber-php cp /tmp/log-original.jsonl /var/www/html/transparency/log.jsonl
+    SALIDA=$(audita --reiniciar http://web 2>&1); CODIGO=$?
+    [ "$CODIGO" = "0" ] && ok "restaurado el log, el auditor vuelve a aceptarlo" || fail "el log no se restauró"
+else
+    printf '  omite  auditor y vista dividida: hacen falta el contenedor y su extensión\n'
+fi
+
+echo "== Épocas continuas, sin huecos (§19.5) =="
+if docker exec kyber-php true 2>/dev/null; then
+    HUECOS=$(docker exec kyber-php sh -c "ls -1 /var/www/html/journal/epochs/*.json 2>/dev/null | sed 's#.*/##; s#\.json##' | sort -n" | python3 -c "
+import sys
+numeros = [int(l) for l in sys.stdin if l.strip()]
+huecos = sum(1 for a, b in zip(numeros, numeros[1:]) if b != a + 1)
+print(f'{len(numeros)} {huecos}')")
+    CERRADAS=$(echo "$HUECOS" | cut -d' ' -f1)
+    SALTOS=$(echo "$HUECOS" | cut -d' ' -f2)
+    [ "${CERRADAS:-0}" -ge 1 ] && ok "hay $CERRADAS época(s) anclada(s)" || fail "no hay épocas ancladas"
+    [ "${SALTOS:-1}" = "0" ] && ok "la numeración de épocas no tiene huecos" || fail "la numeración tiene $SALTOS hueco(s)"
+    VACIAS=$(docker exec kyber-php sh -c "grep -l '\"empty\":true' /var/www/html/journal/epochs/*.json 2>/dev/null | wc -l")
+    ok "las épocas sin recibos también se anclan (${VACIAS:-0} vacías ancladas)"
+fi
+
 echo "== Autenticación: lo que debe rechazarse =="
 voltea() { python3 -c "
 import base64,sys
