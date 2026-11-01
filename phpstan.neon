@@ -9,6 +9,8 @@ parameters:
         - api_server
         - app
         - libs
+        # El log de transparencia es un rol más, con sus propios endpoints.
+        - log
         - public
         # El verificador de evidencia y las comprobaciones del no repudio viven
         # aquí, y son código tan nuestro como el resto.

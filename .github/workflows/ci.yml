@@ -37,7 +37,7 @@ jobs:
 
       - name: Comprobar sintaxis
         run: |
-          find api_server app libs public scripts -name '*.php' -print0 \
+          find api_server app libs log public scripts -name '*.php' -print0 \
             | xargs -0 -n1 -P4 php -l
 
       # Sin la extensión oqsphp aquí no se pueden comprobar las firmas, y esas

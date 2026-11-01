@@ -13,6 +13,7 @@ Key exchange and message encryption using **ML-KEM-768** (FIPS 203, the standard
 - [Architecture](#architecture)
 - [API (endpoints)](#api-endpoints)
 - [No repudio y evidencia](#no-repudio-y-evidencia)
+- [Transparencia y auditoría](#transparencia-y-auditoría)
 - [Communication flow](#communication-flow)
 - [Demo](#demo)
 - [Development](#development)
@@ -115,6 +116,9 @@ The **browser** is the front end. Two logical backends cooperate over HTTP:
 | `api_server/` | Kyber server API — public key, decapsulation (`set_shared_secret`), decrypt (`decrypt_message`).        |
 | `libs/`       | Shared PHP helpers (`kyber_utils.php`), identidad, recibos, Merkle, diario y evidencia.                  |
 | `journal/`    | Diario encadenado, recibos y raíces de época. Hashes y firmas, nunca mensajes ni claves.                 |
+| `log/`        | Log de transparencia: rol aparte, con identidad propia (`checkpoint`, `entries`, `proof`, `consistency`, `acts`, `gossip`). |
+| `transparency/` | Hojas del log, sus checkpoints firmados y el índice de sujetos. Público por definición (§12.4).        |
+| `auditor/`    | Lo que el auditor ha visto, **fuera** del log: si viviera dentro, un log que miente podría borrarlo.     |
 | `dist/`       | Built static front (Vite).                                                                              |
 
 
@@ -274,6 +278,20 @@ nodo, y este endpoint permite hacerlo a mano.
 
 
 
+### 9-13. El log de transparencia
+
+Son de un rol aparte, con su propia identidad, y sus respuestas son públicas
+(§12.4): la seguridad no depende de que el registro sea secreto.
+
+| Endpoint | Qué devuelve |
+| --- | --- |
+| `GET /log/checkpoint` | El último checkpoint firmado, con el contador total de entradas y la identidad pública del log. |
+| `GET /log/entries?from=&count=&type=` | Las hojas del log. |
+| `GET /log/proof?seq=` | Prueba de inclusión de una entrada, firmada por el log. |
+| `GET /log/consistency?from_size=` | Prueba de que el árbol de ese tamaño es prefijo del actual (logarítmica, RFC 6962). |
+| `GET /log/acts?node_id=` | Actos de autoridad contra un nodo, con prueba de inclusión o de **no** inclusión. |
+| `POST /log/gossip` | Recibe un checkpoint visto en otro sitio y dice si encaja con la vista de ahora. |
+
 ## No repudio y evidencia
 
 Un AEAD autentica al emisor **ante el receptor**, porque los dos tienen la misma
@@ -331,10 +349,73 @@ Sin `--emisor`, lo que el programa no comprueba es precisamente lo más fácil d
 dar por supuesto: que esas claves públicas son de quien el paquete dice. Sin
 cadena de certificados (§5.3) eso se ata desde fuera.
 
+## Transparencia y auditoría
+
+El paso 5 dejó la evidencia bien firmada, pero custodiada por el nodo central,
+que es justo el adversario que la §3 llama **A4** y del que la especificación
+dice que *es el que la arquitectura centralizada de IP5 introduce y el que su
+documentación no contempla*. Esta parte es la que lo acota (§12, §19.5).
+
+**El log es un rol aparte.** Tiene identidad ML-DSA propia y firma sus propios
+checkpoints, así que el nodo central no puede fabricarlos. En este demostrador
+corre en la misma máquina que todo lo demás: la separación es de claves y de
+código, no física, y conviene decirlo en voz alta.
+
+**Qué se publica.** Las identidades (mientras no haya CA, el log de
+certificados de la §12.1 es un log de identidades), todo acto de autoridad
+contra un nodo, la raíz de cada época de recibos y los huecos declarados en la
+numeración de épocas.
+
+**Lo que esto cambia en el handshake.** Una identidad que no venga con su
+prueba de inclusión en el log se rechaza, en los dos sentidos. Así, para
+suplantar a un nodo hay que dejarlo escrito en un registro público.
+
+**Actos de autoridad.** Rechazar a un nodo es un acto con efectos sobre él, y
+la §12.2 no admite actos invisibles: se registran con motivo, evidencia y
+autor. La regla que la acompaña está implementada literalmente: *un bloqueo que
+no aparece en el log es inválido*, así que si el acto no se puede registrar, el
+rechazo **no se ejecuta** y se responde 503 diciendo por qué. No bloquear no es
+aceptar: es que el acto no surte efecto.
+
+**Prueba de que algo NO pasó.** Los actos se indexan en un árbol de Merkle
+disperso por sujeto, lo que permite demostrar que **no existe** ningún acto
+contra un `node_id`. Es la mitad que casi todos los sistemas omiten (§19.5), y
+la que permite al nodo central acusado de censura probar que no censuró. Por lo
+mismo, toda época se ancla aunque esté vacía: si las vacías no se anclaran, un
+hueco en la numeración no se distinguiría de «no hubo mensajes».
+
+### Detectar una vista dividida
+
+Es la pieza más importante de la §12.3. Una autoridad puede mostrar vistas
+distintas del log a distintos usuarios y ningún observador aislado lo notaría,
+porque cada uno ve un log coherente. Lo que lo delata es comparar.
+
+```bash
+# El auditor guarda lo que ha visto en auditor/, fuera del log
+docker compose exec php php scripts/auditar-log.php http://web
+
+# Y el log compara contra un checkpoint que alguien vio en otro sitio
+curl -s -X POST http://localhost:8080/log/gossip \
+  -H 'Content-Type: application/json' \
+  -d '{"checkpoint": <checkpoint firmado>}'
+```
+
+El auditor exige al log que demuestre que su vista de ahora **contiene** la de
+antes. Si no puede, conserva el checkpoint anterior y lo dice: las dos firmas
+juntas son la prueba, y la puede presentar cualquiera, porque las dos son del
+propio log.
+
+Preguntarle al log si se ha contradicho solo funciona mientras conteste; por eso
+la memoria del auditor vive en `auditor/` y no en el log. Lo que todavía no hay
+es *gossip* de verdad entre varios nodos independientes: con un solo auditor,
+la cobertura es la que es.
+
 ## Communication flow
 
-1. Front requests the public key: `/api_server/get_public_key`.
-2. User app backend encapsulates via `/app/get_shared_secret`.
+1. Front requests the public key: `/api_server/get_public_key`. La oferta viaja
+   con la prueba de que la identidad del servidor consta en el log (§12.1).
+2. User app backend verifica esa prueba, publica su propia identidad y
+   encapsula: `/app/get_shared_secret`.
 3. Front sends the ciphertext: `/api_server/set_shared_secret`.
 4. Server decapsulates with its private key and derives the same shared secret.
 5. User app backend signs and encrypts: `/app/encrypt_message`.
@@ -405,6 +486,19 @@ Done so far, following QSLP/1:
 - **Anclaje Merkle por época y diario encadenado con checkpoints firmados**
   (§11.4, §19.2), con paquete de evidencia exportable y un verificador
   independiente que funciona sin red (§19.3, §19.4).
+- **Log de transparencia con identidad propia** (§12): identidades, actos de
+  autoridad y raíces de época publicadas, con pruebas de inclusión firmadas y
+  pruebas de consistencia logarítmicas del RFC 6962. El handshake rechaza una
+  identidad que no conste publicada (§12.1).
+- **Detección de vista dividida** (§12.3): un auditor guarda fuera del log lo
+  que ha visto y exige que la vista de ahora contenga la de antes. Dos
+  checkpoints firmados que no encajan son una prueba que cualquiera puede
+  presentar.
+- **Actos de autoridad registrados, y la regla dura que los acompaña** (§12.2):
+  un rechazo que no se puede registrar no se ejecuta.
+- **Pruebas de no ocurrencia** (§19.5): árbol de Merkle disperso por sujeto
+  para demostrar que **no** existe ningún acto contra un nodo, épocas continuas
+  y sin huecos —también las vacías— y contadores firmados en cada checkpoint.
 
 Still missing, and it is a long list:
 
@@ -423,19 +517,28 @@ Still missing, and it is a long list:
    detrás de una interfaz, porque no existe la cadena IP5. Es un compromiso
    firmado, pero lo custodia el mismo nodo al que auditas, que es precisamente
    lo que la §11.4 quiere evitar.
-5. **Transparencia.** Los checkpoints se publican en un fichero local, no en un
-   log de transparencia con pruebas de consistencia y detección de vista
-   dividida (§12). La prueba de consistencia de hoy es lineal, no logarítmica.
-6. **Autorización.** `anchor_epoch` y `evidence` responden a quien pregunte:
-   las capacidades de la §13 no están implementadas.
-7. **Exportador en el nodo ligero.** El paquete de evidencia lo construye el
+5. **El log no está separado de verdad.** Tiene identidad propia y el nodo
+   central no puede firmar en su nombre, pero corre en la misma máquina y lo
+   administra quien administra todo lo demás. Un log que se puede apagar a la
+   vez que el nodo auditado no es un tercero.
+6. **Gossip entre varios nodos.** La §12.3 quiere que los nodos ligeros
+   intercambien checkpoints entre sí y con al menos un auditor. Aquí hay un
+   auditor y un endpoint de comparación; con un solo observador, la cobertura
+   es la que es.
+7. **Los diarios locales siguen con consistencia lineal.** El log usa pruebas
+   logarítmicas, pero la de la §19.2 entrega la tirada de entradas entre dos
+   checkpoints.
+8. **Autorización.** `anchor_epoch`, `evidence` y los endpoints del log
+   responden a quien pregunte: las capacidades de la §13 no están
+   implementadas. El log es público a propósito; los otros dos no deberían.
+9. **Exportador en el nodo ligero.** El paquete de evidencia lo construye el
    nodo central; el ligero tiene su diario y su copia de las firmas, pero
    todavía no exporta por su cuenta.
-8. **Una segunda implementación del verificador**, en otro lenguaje. Dos
-   programas independientes que coinciden es un argumento mucho más fuerte ante
-   un perito contrario que uno solo (§19.4).
-9. **HTTPS** everywhere, and CORS that is not `*`.
-10. Rate limiting.
+10. **Una segunda implementación del verificador**, en otro lenguaje. Dos
+    programas independientes que coinciden es un argumento mucho más fuerte
+    ante un perito contrario que uno solo (§19.4).
+11. **HTTPS** everywhere, and CORS that is not `*`.
+12. Rate limiting.
 
 
 ## Contributing
@@ -465,8 +568,9 @@ nothing about whether the defences are in place.
 
 `composer pruebas` (`scripts/prueba-unidades.php`) comprueba sin HTTP las
 piezas de las que depende todo lo demás: canonicalización, árbol de Merkle,
-separación de dominios de firma, ventana anti-replay y encadenamiento del
-diario. Fuera del contenedor no hay extensión `oqsphp` y las comprobaciones de
+pruebas de consistencia del RFC 6962 par por par, árbol disperso y pruebas de
+no inclusión, separación de dominios de firma, ventana anti-replay,
+encadenamiento del diario, vista dividida y continuidad de las épocas. Fuera del contenedor no hay extensión `oqsphp` y las comprobaciones de
 firma se marcan como omitidas; dentro se ejecutan todas:
 
 ```bash
