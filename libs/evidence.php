@@ -39,6 +39,17 @@ function buildEvidencePackage($rcHashHex, $payload = null)
         throw new RuntimeException('Este nodo no conserva ningún registro de recibo para ' . $rcHashHex);
     }
 
+    // El paquete tiene que llevar un checkpoint que cuadre con las pruebas que
+    // lo acompañan: si el log creció desde el último, la prueba de consistencia
+    // terminaría en una raíz que ningún checkpoint firma.
+    $lastCheckpoint = logLastCheckpoint();
+
+    if ($lastCheckpoint === null
+        || (int) $lastCheckpoint['tree_size'] !== logSize()
+        || !hash_equals(strtolower((string) $lastCheckpoint['root']), logRoot())) {
+        logCheckpoint();
+    }
+
     $epoch = (int) $record['epoch'];
     $proof = epochProofFor($epoch, $rcHashHex);
     $epochRecord = epochRecord($epoch);

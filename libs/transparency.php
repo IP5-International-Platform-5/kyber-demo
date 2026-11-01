@@ -335,6 +335,10 @@ function logVerifyInclusion($inclusion, $logPublicKey, ?array $leaf = null)
 /**
  * Firma y publica un checkpoint del log.
  *
+ * Antes de firmar comprueba que su propio contenido siga siendo compatible con
+ * el último checkpoint que publicó. Si no lo es, se niega: firmar encima de una
+ * historia reescrita convertiría una corrupción en una contradicción firmada.
+ *
  * Lleva número de secuencia y el contador total de entradas (§12.3, §19.5):
  * suprimir una entrada obliga a falsear un contador que ya está firmado, y
  * retroceder el tamaño es detectable sin más que comparar dos checkpoints.
@@ -348,6 +352,21 @@ function logCheckpoint()
     logEnsureDir();
     $identity = loadOrCreateIdentity('log');
     $previous = logLastCheckpoint();
+
+    if ($previous !== null && !hash_equals(
+        strtolower((string) $previous['root']),
+        logRoot((int) $previous['tree_size']),
+    )) {
+        // El contenido de ahora contradice un checkpoint que este log ya firmó.
+        // Un log honesto no sigue firmando como si nada: eso es exactamente lo
+        // que haría uno que mantiene dos vistas. Igual que el diario se niega a
+        // firmar una cadena rota (§19.2), aquí se para y lo dice.
+        throw new RuntimeException(
+            'El contenido actual del log contradice el checkpoint nº ' . (int) $previous['seq']
+            . ' que este log firmó sobre ' . (int) $previous['tree_size'] . ' entradas. No se firma '
+            . 'otro checkpoint encima: eso haría indistinguible un error de una vista dividida.',
+        );
+    }
 
     $body = [
         'acts_root' => actsRoot(),

@@ -16,9 +16,12 @@ try {
     $identity = loadOrCreateIdentity('log');
     $checkpoint = logLastCheckpoint();
 
-    if ($checkpoint === null || (int) $checkpoint['tree_size'] !== logSize()) {
-        // El log se firma cuando hace falta: si ha crecido desde el último
-        // checkpoint, se publica uno nuevo antes de contestar.
+    if ($checkpoint === null
+        || (int) $checkpoint['tree_size'] !== logSize()
+        // También cuando la raíz no cuadra con el contenido: un log cuyo
+        // fichero cambió sin crecer seguiría entregando una firma que ya no
+        // describe lo que tiene, y eso es lo peor de los dos mundos.
+        || !hash_equals(strtolower((string) $checkpoint['root']), logRoot())) {
         $checkpoint = logCheckpoint();
     }
 
@@ -35,9 +38,15 @@ try {
             . 'una clave que entrega el propio log no demuestra de quién es.',
     ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 } catch (Throwable $e) {
+    // El motivo sale al cliente a propósito. Si el log no puede firmar porque
+    // su contenido contradice lo que ya firmó, eso es justo lo que un auditor
+    // tiene que poder leer: un log público que se calla por qué calla no sirve.
     http_response_code(500);
     error_log('log/checkpoint: ' . $e->getMessage());
-    $body = json_encode(['error' => 'El log no puede firmar ahora mismo']);
+    $body = json_encode([
+        'error' => 'El log no puede firmar ahora mismo',
+        'detail' => $e->getMessage(),
+    ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 }
 
 log_response($body);

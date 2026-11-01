@@ -21,7 +21,9 @@ if ($nodeId === '' || preg_match('/^ip5:[A-Z2-7]{26}$/', $nodeId) !== 1) {
     try {
         $proof = actsProofFor($nodeId);
 
-        if ($proof['checkpoint'] === null || (int) $proof['checkpoint']['tree_size'] !== logSize()) {
+        if ($proof['checkpoint'] === null
+            || (int) $proof['checkpoint']['tree_size'] !== logSize()
+            || !hash_equals(strtolower((string) $proof['checkpoint']['root']), logRoot())) {
             // La prueba cuelga de una raíz firmada, así que si el log ha
             // crecido hay que firmar antes de contestar.
             logCheckpoint();
