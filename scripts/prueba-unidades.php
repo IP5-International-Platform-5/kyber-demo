@@ -449,13 +449,18 @@ if (!class_exists('OQS_SIGNATURE')) {
         'el log tiene identidad propia, distinta de la del nodo central',
         $logIdentity['public'] !== $receiver['public'] && $logIdentity['public'] !== $sender['public'],
     );
-    ok('el log vacío tiene la raíz del árbol vacío', logRoot() === merkleEmptyRoot() && logSize() === 0);
+    // El log ya tiene entradas a estas alturas: las secciones de épocas de más
+    // arriba publican en él. Así que la raíz vacía se comprueba pidiendo el
+    // árbol de tamaño cero, en lugar de suponer un log recién nacido.
+    ok('el árbol de tamaño cero tiene la raíz del árbol vacío', logRoot(0) === merkleEmptyRoot());
 
+    $sizeBefore = logSize();
     $firstLeaf = logAppend('identity', ['note' => 'prueba'], 'ip5:AAA');
     ok(
-        'publicar una hoja devuelve su posición y su prueba',
-        $firstLeaf['seq'] === 0 && isset($firstLeaf['inclusion']['signature']),
+        'publicar una hoja la coloca al final y devuelve su prueba',
+        $firstLeaf['seq'] === $sizeBefore && isset($firstLeaf['inclusion']['signature']),
     );
+    ok('y el tamaño del log crece en uno', logSize() === $sizeBefore + 1);
     ok(
         'la prueba de inclusión verifica con la clave del log',
         logVerifyInclusion($firstLeaf['inclusion'], $logIdentity['public'], $firstLeaf['leaf']),
@@ -507,48 +512,62 @@ if (!class_exists('OQS_SIGNATURE')) {
 
     echo "\n— Vista dividida (§12.3)\n";
 
-    // Se reescribe una hoja ya cubierta por un checkpoint firmado. El log puede
-    // firmar la versión nueva, pero entonces sus dos firmas se contradicen, y
-    // eso es exactamente lo que el gossip tiene que detectar.
+    // Se reescribe una hoja ya cubierta por un checkpoint firmado.
     $rawLeaves = explode("\n", trim((string) file_get_contents(logPath())));
+    // Se guarda la línea tal cual para devolverla luego: reconstruirla «igual»
+    // a mano no vale, porque cualquier diferencia de un byte deja el log
+    // contradiciendo su propia firma.
+    $originalLine = $rawLeaves[1];
     $decoded = json_decode($rawLeaves[1], true);
     $decoded['body'] = ['epoch' => 1, 'root' => hash('sha3-256', 'raiz-cambiada'), 'size' => 1];
     $rawLeaves[1] = canonicalJson($decoded);
     file_put_contents(logPath(), implode("\n", $rawLeaves) . "\n");
 
-    $cp3 = logCheckpoint();
-    $afterRewrite = logCompareCheckpoints($cp1, $cp3, $logIdentity['public'], logConsistencyProof((int) $cp1['tree_size']));
-    ok('reescribir una hoja ya firmada se detecta como vista dividida', $afterRewrite['split_view'] === true);
-    ok(
-        'y los dos checkpoints siguen estando firmados por el log',
-        $afterRewrite['both_signed'] === true
-        && logVerifyCheckpoint($cp1, $logIdentity['public'])
-        && logVerifyCheckpoint($cp3, $logIdentity['public']),
-    );
+    try {
+        logCheckpoint();
+        ok('un log honesto se niega a firmar sobre una historia reescrita', false);
+    } catch (RuntimeException $e) {
+        ok(
+            'un log honesto se niega a firmar sobre una historia reescrita',
+            strpos($e->getMessage(), 'contradice el checkpoint') !== false,
+        );
+    }
 
-    // La vista dividida en su forma más pura: el log firma dos veces el mismo
-    // tamaño con raíces distintas. Se construye con la clave del log a
-    // propósito, porque sin firma no habría nada que reprocharle.
+    // Pero un log que miente no tiene esa comprobación: firma la otra vista con
+    // su misma clave. Es el caso que el auditor tiene que detectar, así que hay
+    // que fabricarlo para comprobar que lo detecta.
     $forkBody = [
-        'acts_root' => (string) $cp1['acts_root'],
-        'root' => hash('sha3-256', 'la otra vista del log'),
-        'seq' => (int) $cp1['seq'],
-        'tree_size' => (int) $cp1['tree_size'],
-        'ts' => (string) $cp1['ts'],
+        'acts_root' => (string) $cp2['acts_root'],
+        'root' => logRoot((int) $cp2['tree_size']),
+        'seq' => (int) $cp2['seq'] + 1,
+        'tree_size' => (int) $cp2['tree_size'],
+        'ts' => rfc3339(),
     ];
-    $fork = $forkBody + [
+    $forged = $forkBody + [
         'log_id' => nodeId($logIdentity['public']),
         'sig_alg' => SIG_ALG,
         'signature' => b64uEncode(signDomain($logIdentity['private'], LOG_CHECKPOINT_DOMAIN, canonicalJson($forkBody))),
     ];
+
+    $afterRewrite = logCompareCheckpoints($cp2, $forged, $logIdentity['public']);
     ok(
-        'dos raíces distintas con el mismo tamaño son vista dividida',
-        logCompareCheckpoints($cp1, $fork, $logIdentity['public'])['split_view'] === true,
+        'dos vistas firmadas del mismo tamaño se detectan como vista dividida',
+        $afterRewrite['split_view'] === true && $afterRewrite['both_signed'] === true,
+    );
+    ok(
+        'y los dos checkpoints siguen verificando: la contradicción es suya',
+        logVerifyCheckpoint($cp2, $logIdentity['public']) && logVerifyCheckpoint($forged, $logIdentity['public']),
     );
     ok(
         'un checkpoint sin firma válida no sirve ni para acusar',
-        logCompareCheckpoints($cp1, array_merge($cp3, ['signature' => b64uEncode('falso')]), $logIdentity['public'])['both_signed'] === false,
+        logCompareCheckpoints($cp2, array_merge($forged, ['signature' => b64uEncode('falso')]), $logIdentity['public'])['both_signed'] === false,
     );
+
+    // Se restaura la hoja para que el resto de las comprobaciones trabajen
+    // sobre un log coherente.
+    $rawLeaves[1] = $originalLine;
+    file_put_contents(logPath(), implode("\n", $rawLeaves) . "\n");
+    ok('restaurada la hoja, el log vuelve a poder firmar', is_array(logCheckpoint()));
 
     echo "\n— Actos de autoridad (§12.2) y no ocurrencia (§19.5)\n";
 

@@ -44,8 +44,15 @@ NS=$(echo "$R1" | j server_nonce); ID_S=$(echo "$R1" | j identity); SIG_S=$(echo
 [ ${#SIG_S} -gt 4000 ] && ok "la oferta viene FIRMADA (${#SIG_S} car. base64)" || fail "oferta sin firma" "${#SIG_S}"
 [ -n "$(echo "$R1" | j identity_fingerprint)" ] && ok "el servidor presenta su identidad" || fail "sin identidad"
 
-oferta() { printf '{"public_key":"%s","key_id":"%s","client_nonce":"%s","server_nonce":"%s","identity":"%s","signature":"%s"}' \
-    "$1" "$KEY_ID" "$NC" "$NS" "$2" "$3"; }
+ID_LOG_S=$(echo "$R1" | jp identity_log)
+
+# La oferta ya no es solo clave y firma: lleva la prueba de que esa identidad
+# consta publicada en el log, que es lo que el cliente exige (§12.1).
+oferta() { python3 -c "
+import json, sys
+print(json.dumps({'public_key': sys.argv[1], 'key_id': sys.argv[2], 'client_nonce': sys.argv[3],
+                  'server_nonce': sys.argv[4], 'identity': sys.argv[5], 'signature': sys.argv[6],
+                  'identity_log': json.loads(sys.argv[7])}))" "$1" "$KEY_ID" "$NC" "$NS" "$2" "$3" "$ID_LOG_S"; }
 
 R2=$(curl -s -X POST "$B/app/get_shared_secret" -H 'Content-Type: application/json' -d "$(oferta "$PK" "$ID_S" "$SIG_S")")
 SID_APP=$(echo "$R2" | j sid); CT=$(echo "$R2" | j ciphertext); FP_APP=$(echo "$R2" | j secret_fingerprint)
@@ -54,8 +61,15 @@ ID_C=$(echo "$R2" | j identity); SIG_C=$(echo "$R2" | j signature); CONF_APP=$(e
 [ -n "$SID_APP" ] && ok "el lado app verifica la firma y deriva un sid" || fail "encapsulado" "$R2"
 echo "$R2" | grep -q shared_secret && fail "el encapsulado DEVUELVE el secreto" || ok "el encapsulado no devuelve el secreto"
 
+ID_LOG_C=$(echo "$R2" | jp identity_log)
+
+respuesta() { python3 -c "
+import json, sys
+print(json.dumps({'ciphertext': sys.argv[1], 'key_id': sys.argv[2], 'identity': sys.argv[3],
+                  'signature': sys.argv[4], 'identity_log': json.loads(sys.argv[5])}))" "$1" "$2" "$3" "$4" "${5:-$ID_LOG_C}"; }
+
 R3=$(curl -s -X POST "$B/api_server/set_shared_secret" -H 'Content-Type: application/json' \
-      -d "{\"ciphertext\":\"$CT\",\"key_id\":\"$KEY_ID\",\"identity\":\"$ID_C\",\"signature\":\"$SIG_C\"}")
+      -d "$(respuesta "$CT" "$KEY_ID" "$ID_C" "$SIG_C")")
 SID_SRV=$(echo "$R3" | j sid); FP_SRV=$(echo "$R3" | j secret_fingerprint); CONF_SRV=$(echo "$R3" | j confirmation)
 [ -n "$SID_SRV" ] && ok "el servidor verifica la firma del cliente y desencapsula" || fail "desencapsulado" "$R3"
 { [ -n "$SID_APP" ] && [ "$SID_APP" = "$SID_SRV" ]; } \
@@ -283,6 +297,7 @@ C=$(curl -s -o /dev/null -w '%{http_code}' "$B/log/acts?node_id=no-es-un-node-id
 echo "== Auditor independiente y vista dividida (§12.3) =="
 if docker exec kyber-php true 2>/dev/null; then
     audita() { docker exec kyber-php php /var/www/html/scripts/auditar-log.php "$@"; }
+    simula() { docker exec -u www-data kyber-php php /var/www/html/scripts/simular-vista-dividida.php "$@"; }
 
     SALIDA=$(audita --reiniciar http://web 2>&1); CODIGO=$?
     [ "$CODIGO" = "0" ] && ok "el auditor acepta el log en su primera visita" || fail "el auditor falla de entrada" "$(echo "$SALIDA" | tail -3)"
@@ -293,21 +308,32 @@ if docker exec kyber-php true 2>/dev/null; then
     [ "$CODIGO" = "0" ] && ok "tras crecer el log, la vista sigue siendo consistente" || fail "el auditor ve una inconsistencia que no hay" "$(echo "$SALIDA" | tail -3)"
     echo "$SALIDA" | tr '\n' ' ' | grep -q 'creció sin' && ok "el informe lo dice con esas palabras" || fail "el informe no explica la consistencia"
 
-    # Reescribir una hoja ya cubierta por un checkpoint firmado: el log puede
-    # firmar la vista nueva, pero entonces sus dos firmas se contradicen.
+    # Primero: reescribirle una hoja ya cubierta por un checkpoint firmado. Un
+    # log honesto no vuelve a firmar encima, y al negarse lo dice.
     docker exec -u www-data kyber-php cp /var/www/html/transparency/log.jsonl /tmp/log-original.jsonl
-    docker exec -u www-data kyber-php sh -c "php -r '
-        \$path = \"/var/www/html/transparency/log.jsonl\";
-        \$lines = explode(\"\n\", trim(file_get_contents(\$path)));
-        \$leaf = json_decode(\$lines[1], true);
-        \$leaf[\"ts\"] = \"2020-01-01T00:00:00Z\";
-        \$lines[1] = json_encode(\$leaf, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        file_put_contents(\$path, implode(\"\n\", \$lines) . \"\n\");'"
+    docker exec -u www-data kyber-php php -r '
+        $path = "/var/www/html/transparency/log.jsonl";
+        $lines = explode("\n", trim(file_get_contents($path)));
+        $leaf = json_decode($lines[1], true);
+        $leaf["ts"] = "2020-01-01T00:00:00Z";
+        $lines[1] = json_encode($leaf, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        file_put_contents($path, implode("\n", $lines) . "\n");'
+
+    RESP=$(curl -s -w '\n%{http_code}' "$B/log/checkpoint")
+    C=$(echo "$RESP" | tail -1)
+    [ "$C" = "500" ] && ok "con una hoja reescrita, el log no entrega checkpoint (500)" || fail "el log firma encima de una historia reescrita" "HTTP $C"
+    echo "$RESP" | grep -q 'contradice el checkpoint' && ok "y el motivo que da es la contradicción con su propia firma" || fail "el motivo no es el esperado" "$(echo "$RESP" | head -2)"
 
     SALIDA=$(audita http://web 2>&1); CODIGO=$?
-    [ "$CODIGO" = "1" ] && ok "reescribir el log hace que el auditor lo rechace" || fail "la reescritura pasa desapercibida" "código $CODIGO"
+    [ "$CODIGO" = "2" ] && ok "el auditor no puede auditar y lo distingue de un log consistente" || fail "el auditor no distingue el caso" "código $CODIGO"
+
+    # Y ahora el caso que de verdad importa: un log que miente sí firma la otra
+    # vista, porque no se hace esa comprobación a sí mismo.
+    simula --raiz-actual > /dev/null 2>&1
+    SALIDA=$(audita http://web 2>&1); CODIGO=$?
+    [ "$CODIGO" = "1" ] && ok "el auditor rechaza el log que firma dos vistas" || fail "la vista dividida pasa desapercibida" "código $CODIGO"
     echo "$SALIDA" | tr '\n' ' ' | grep -q 'VISTA DIVIDIDA' && ok "y lo llama por su nombre: vista dividida" || fail "el informe no nombra la vista dividida"
-    echo "$SALIDA" | tr '\n' ' ' | grep -q 'no se guarda' && ok "el auditor conserva el checkpoint anterior, que es la prueba" || fail "el auditor no conserva la prueba"
+    echo "$SALIDA" | tr '\n' ' ' | grep -qi 'no se guarda' && ok "el auditor conserva el checkpoint anterior, que es la prueba" || fail "el auditor no conserva la prueba"
 
     GOSSIP=$(curl -s -X POST "$B/log/gossip" -H 'Content-Type: application/json' \
         -d "$(python3 -c "
@@ -315,29 +341,61 @@ import json, subprocess
 visto = subprocess.run(['docker', 'exec', 'kyber-php', 'cat', '/var/www/html/auditor/checkpoints-vistos.jsonl'],
                        capture_output=True, text=True).stdout.strip().split('\n')[-1]
 print(json.dumps({'checkpoint': json.loads(visto)}))")")
-    [ "$(echo "$GOSSIP" | jp verdict.split_view)" = "True" ] && ok "el gossip también detecta la divergencia" || fail "el gossip no la detecta" "$GOSSIP"
+    [ "$(echo "$GOSSIP" | jp verdict.split_view)" = "True" ] && ok "el gossip también detecta la divergencia" || fail "el gossip no la detecta" "$(echo "$GOSSIP" | jp verdict.detail)"
     [ -n "$(echo "$GOSSIP" | jp split_view_proof.a.signature)" ] && ok "y devuelve las dos firmas juntas como prueba" || fail "sin prueba agrupada"
 
+    # Dejar el log como estaba: contenido original y sin el checkpoint falso.
+    simula --deshacer > /dev/null 2>&1
     docker exec -u www-data kyber-php cp /tmp/log-original.jsonl /var/www/html/transparency/log.jsonl
     SALIDA=$(audita --reiniciar http://web 2>&1); CODIGO=$?
-    [ "$CODIGO" = "0" ] && ok "restaurado el log, el auditor vuelve a aceptarlo" || fail "el log no se restauró"
+    [ "$CODIGO" = "0" ] && ok "restaurado el log, el auditor vuelve a aceptarlo" || fail "el log no se restauró" "$(echo "$SALIDA" | tail -3)"
 else
     printf '  omite  auditor y vista dividida: hacen falta el contenedor y su extensión\n'
 fi
 
 echo "== Épocas continuas, sin huecos (§19.5) =="
 if docker exec kyber-php true 2>/dev/null; then
-    HUECOS=$(docker exec kyber-php sh -c "ls -1 /var/www/html/journal/epochs/*.json 2>/dev/null | sed 's#.*/##; s#\.json##' | sort -n" | python3 -c "
-import sys
-numeros = [int(l) for l in sys.stdin if l.strip()]
-huecos = sum(1 for a, b in zip(numeros, numeros[1:]) if b != a + 1)
-print(f'{len(numeros)} {huecos}')")
-    CERRADAS=$(echo "$HUECOS" | cut -d' ' -f1)
-    SALTOS=$(echo "$HUECOS" | cut -d' ' -f2)
-    [ "${CERRADAS:-0}" -ge 1 ] && ok "hay $CERRADAS época(s) anclada(s)" || fail "no hay épocas ancladas"
-    [ "${SALTOS:-1}" = "0" ] && ok "la numeración de épocas no tiene huecos" || fail "la numeración tiene $SALTOS hueco(s)"
+    NUMEROS=$(docker exec kyber-php sh -c "ls -1 /var/www/html/journal/epochs/*.json 2>/dev/null | sed 's#.*/##; s#\.json##' | sort -n")
+    HUECOS=$(curl -s "$B/log/entries?type=epoch_gap&count=100")
+
+    RESUMEN=$(python3 -c "
+import json, sys
+
+numeros = [int(l) for l in sys.argv[1].split() if l.strip()]
+declarados = [(int(e['body']['from']), int(e['body']['to']))
+              for e in json.loads(sys.argv[2]).get('entries', [])]
+
+saltos = [(a, b) for a, b in zip(numeros, numeros[1:]) if b != a + 1]
+cubiertos = sum(1 for a, b in saltos
+                if any(d <= a + 1 and b - 1 <= h for d, h in declarados))
+ultimas = numeros[-10:]
+seguidas = all(b == a + 1 for a, b in zip(ultimas, ultimas[1:]))
+
+print(len(numeros), len(saltos), cubiertos, len(declarados), int(seguidas))" "$NUMEROS" "$HUECOS")
+
+    CERRADAS=$(echo "$RESUMEN" | cut -d' ' -f1)
+    SALTOS=$(echo "$RESUMEN" | cut -d' ' -f2)
+    CUBIERTOS=$(echo "$RESUMEN" | cut -d' ' -f3)
+    DECLARADOS=$(echo "$RESUMEN" | cut -d' ' -f4)
+    SEGUIDAS=$(echo "$RESUMEN" | cut -d' ' -f5)
+
+    [ "${CERRADAS:-0}" -ge 10 ] && ok "hay $CERRADAS épocas ancladas" || fail "muy pocas épocas ancladas" "${CERRADAS:-0}"
+    [ "${SEGUIDAS:-0}" = "1" ] && ok "las diez últimas épocas ancladas son consecutivas" || fail "las últimas épocas tienen huecos"
     VACIAS=$(docker exec kyber-php sh -c "grep -l '\"empty\":true' /var/www/html/journal/epochs/*.json 2>/dev/null | wc -l")
-    ok "las épocas sin recibos también se anclan (${VACIAS:-0} vacías ancladas)"
+    [ "${VACIAS:-0}" -ge 1 ] && ok "las épocas sin recibos también se anclan ($VACIAS vacías)" || fail "no se anclan las épocas vacías"
+
+    if [ "${SALTOS:-0}" = "0" ]; then
+        ok "no hay ningún salto en la numeración"
+    else
+        SIN_CUBRIR=$((SALTOS - CUBIERTOS))
+        [ "${DECLARADOS:-0}" -ge 1 ] && ok "$DECLARADOS hueco(s) declarado(s) y firmado(s) en el log" || fail "hay saltos y ninguno está declarado"
+        # Los saltos anteriores a este trabajo quedaron sin declarar porque el
+        # código de entonces no anclaba las épocas vacías. Se informa, no se da
+        # por bueno: un estado heredado no es una comprobación que pase.
+        [ "$SIN_CUBRIR" = "0" ] \
+            && ok "todos los saltos están cubiertos por un hueco declarado" \
+            || printf '  nota   %s salto(s) sin declarar, de anclajes anteriores a este cambio\n' "$SIN_CUBRIR"
+    fi
 fi
 
 echo "== Autenticación: lo que debe rechazarse =="
@@ -362,18 +420,24 @@ C=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/app/get_shared_secret" -H
 [ "$C" = "409" ] && ok "clave efímera sustituida (MITM): rechazada (409)" || fail "sustitución de clave admitida" "HTTP $C"
 
 ID_FALSA=$(python3 -c "import os,base64;print(base64.b64encode(os.urandom(1952)).decode())")
+R=$(curl -s -X POST "$B/app/get_shared_secret" -H 'Content-Type: application/json' \
+      -d "$(oferta "$PK" "$ID_FALSA" "$SIG_S")")
 C=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/app/get_shared_secret" -H 'Content-Type: application/json' \
       -d "$(oferta "$PK" "$ID_FALSA" "$SIG_S")")
-[ "$C" = "409" ] && ok "identidad distinta de la fijada: rechazada (409)" || fail "cambio de identidad admitido" "HTTP $C"
+# Ahora esto se rechaza antes de llegar al fijado, porque la prueba de
+# publicación es de otra clave. El fijado se prueba aparte, más abajo, con una
+# identidad que sí consta en el log.
+[ "$C" = "409" ] && ok "una identidad que no cuadra con su prueba del log: rechazada (409)" || fail "cambio de identidad admitido" "HTTP $C"
+echo "$R" | grep -q 'log de transparencia' && ok "y el motivo que da es el log, no el fijado" || fail "el motivo del rechazo no es el esperado" "$R"
 
 SIGC_MALA=$(voltea "$SIG_C" 100)
 C=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/api_server/set_shared_secret" -H 'Content-Type: application/json' \
-      -d "{\"ciphertext\":\"$CT\",\"key_id\":\"$K2\",\"identity\":\"$ID_C\",\"signature\":\"$SIGC_MALA\"}")
+      -d "$(respuesta "$CT" "$K2" "$ID_C" "$SIGC_MALA")")
 [ "$C" = "409" ] && ok "firma del cliente manipulada: rechazada (409)" || fail "firma de cliente manipulada admitida" "HTTP $C"
 
 echo "== Comprobaciones negativas =="
 C=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/api_server/set_shared_secret" -H 'Content-Type: application/json' \
-      -d "{\"ciphertext\":\"$CT\",\"key_id\":\"$KEY_ID\",\"identity\":\"$ID_C\",\"signature\":\"$SIG_C\"}")
+      -d "$(respuesta "$CT" "$KEY_ID" "$ID_C" "$SIG_C")")
 [ "$C" = "409" ] && ok "reutilizar el key_id se rechaza (409): la clave privada murió al usarse" || fail "reutilización de key_id admitida" "HTTP $C"
 
 C=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/app/encrypt_message" -H 'Content-Type: application/json' \
