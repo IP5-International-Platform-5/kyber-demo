@@ -405,6 +405,15 @@ antes. Si no puede, conserva el checkpoint anterior y lo dice: las dos firmas
 juntas son la prueba, y la puede presentar cualquiera, porque las dos son del
 propio log.
 
+Un log honesto, además, **se niega a firmar** un checkpoint que contradiga el
+que ya publicó: si alguien le reescribe una hoja por detrás, `/log/checkpoint`
+devuelve 500 y dice que su contenido contradice su propia firma, en lugar de
+seguir firmando como si nada. Para poder comprobar que la detección funciona
+hace falta simular al log que sí miente, y de eso se encarga
+`scripts/simular-vista-dividida.php`, que firma la otra vista con la misma
+clave. No forma parte del protocolo: está ahí porque una defensa que no se ha
+visto fallar no se ha comprobado.
+
 Preguntarle al log si se ha contradicho solo funciona mientras conteste; por eso
 la memoria del auditor vive en `auditor/` y no en el log. Lo que todavía no hay
 es *gossip* de verdad entre varios nodos independientes: con un solo auditor,
@@ -570,7 +579,8 @@ nothing about whether the defences are in place.
 piezas de las que depende todo lo demás: canonicalización, árbol de Merkle,
 pruebas de consistencia del RFC 6962 par por par, árbol disperso y pruebas de
 no inclusión, separación de dominios de firma, ventana anti-replay,
-encadenamiento del diario, vista dividida y continuidad de las épocas. Fuera del contenedor no hay extensión `oqsphp` y las comprobaciones de
+encadenamiento del diario, vista dividida y continuidad de las épocas. Son 141
+comprobaciones dentro del contenedor y 98 en la prueba de extremo a extremo. Fuera del contenedor no hay extensión `oqsphp` y las comprobaciones de
 firma se marcan como omitidas; dentro se ejecutan todas:
 
 ```bash

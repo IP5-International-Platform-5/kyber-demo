@@ -266,8 +266,10 @@
             let serverNonce = null;
             let serverIdentity = null;
             let serverSignature = null;
+            let serverIdentityLog = null;
             let appIdentity = null;
             let appSignature = null;
+            let appIdentityLog = null;
 
             // Get the API base URL
             const getApiBaseUrl = () => {
@@ -377,8 +379,10 @@
                 serverNonce = null;
                 serverIdentity = null;
                 serverSignature = null;
+                serverIdentityLog = null;
                 appIdentity = null;
                 appSignature = null;
+                appIdentityLog = null;
                 serverPublicKey = null;
 
                 try {
@@ -412,6 +416,10 @@
                         serverNonce = data.server_nonce;
                         serverIdentity = data.identity;
                         serverSignature = data.signature;
+                        // Prueba de que esa identidad consta publicada en el
+                        // log de transparencia. Sin ella el backend del cliente
+                        // rechaza la oferta (QSLP/1 §12.1).
+                        serverIdentityLog = data.identity_log;
 
                         resultElement.innerHTML = `Ephemeral server public key received (key_id <code>${keyId}</code>),
                         <strong>signed</strong> by identity <span class="shared-secret-value">${data.identity_fingerprint}</span>.
@@ -450,6 +458,7 @@
                 sid = null;
                 appIdentity = null;
                 appSignature = null;
+                appIdentityLog = null;
 
                 const publicKeyPayload = document.getElementById('encapsulatePublicKeyInput').value.trim();
 
@@ -474,7 +483,8 @@
                             client_nonce: clientNonce,
                             server_nonce: serverNonce,
                             identity: serverIdentity,
-                            signature: serverSignature
+                            signature: serverSignature,
+                            identity_log: serverIdentityLog
                         })
                     }));
                     const data = await response.json();
@@ -492,6 +502,7 @@
                         secretFingerprint = data.secret_fingerprint;
                         sid = data.sid;
                         appIdentity = data.identity;
+                        appIdentityLog = data.identity_log;
                         appSignature = data.signature;
 
                         resultElement.innerHTML = `Server signature <strong>verified</strong> against identity
@@ -548,7 +559,8 @@
                             ciphertext: ciphertextPayload,
                             key_id: keyId,
                             identity: appIdentity,
-                            signature: appSignature
+                            signature: appSignature,
+                            identity_log: appIdentityLog
                         })
                     }));
                     const data = await response.json();
