@@ -191,9 +191,6 @@ try {
     ]);
 
     journalMaybeCheckpoint('srv');
-    // Aquí no hay planificador, así que quien llegue a continuación cierra las
-    // épocas que ya han terminado (la §11.4 lo quiere con temporizador de 60 s).
-    epochClosePending();
 } catch (Throwable $e) {
     // Aceptar un mensaje del que no podemos dar cuenta sería emitir un recibo
     // por algo que no aparece en nuestra propia evidencia. Mejor rechazarlo.
@@ -204,6 +201,17 @@ try {
         'detail' => 'El mensaje verificó pero no se pudo registrar, así que no se acepta',
     ]));
     exit;
+}
+
+// Aquí no hay planificador, así que quien llegue a continuación cierra las
+// épocas que ya han terminado (la §11.4 lo quiere con temporizador de 60 s).
+// Fuera del bloque anterior a propósito: este mensaje ya está registrado y
+// aceptado, y un problema al cerrar épocas pasadas no es motivo para
+// rechazarlo. Se anota en el registro de errores y se reintentará.
+try {
+    epochClosePending();
+} catch (Throwable $e) {
+    error_log('decrypt_message: no se pudieron cerrar las épocas vencidas: ' . $e->getMessage());
 }
 
 response(json_encode([

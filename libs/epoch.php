@@ -23,6 +23,7 @@ require_once __DIR__ . '/canonical.php';
 require_once __DIR__ . '/merkle.php';
 require_once __DIR__ . '/journal.php';
 require_once __DIR__ . '/timestamp.php';
+require_once __DIR__ . '/transparency.php';
 
 if (!defined('EPOCH_SECONDS')) {
     define('EPOCH_SECONDS', (int) (getenv('QSLP_EPOCH_SECONDS') ?: 60));
@@ -30,6 +31,15 @@ if (!defined('EPOCH_SECONDS')) {
 
 if (!defined('EPOCH_DIR')) {
     define('EPOCH_DIR', __DIR__ . '/../journal/epochs');
+}
+
+// Cuántas épocas vencidas se cierran como máximo de una vez. La §19.5 exige
+// que la numeración no tenga huecos, pero un servicio que ha estado parado dos
+// semanas no puede ponerse a firmar veinte mil épocas vacías para taparlo: el
+// hueco se declara y se firma, que es lo que de verdad pedía la especificación.
+// Con épocas de 60 s, 240 son cuatro horas.
+if (!defined('EPOCH_CATCHUP_MAX')) {
+    define('EPOCH_CATCHUP_MAX', (int) (getenv('QSLP_EPOCH_CATCHUP_MAX') ?: 240));
 }
 
 /**
@@ -307,13 +317,11 @@ function epochClose($epoch)
 
     $leaves = epochLeaves($epoch);
 
-    if (empty($leaves)) {
-        // Una época sin recibos no tiene raíz. Anclar un relleno dejaría en el
-        // registro un compromiso con nada.
-        return null;
-    }
-
-    $root = merkleRoot($leaves);
+    // Una época sin recibos se ancla igual, con la raíz del árbol vacío. La
+    // §19.5 lo exige: si las épocas vacías no se anclan, un hueco en la
+    // numeración no se distingue de «no hubo mensajes», y entonces omitir una
+    // época entera sale gratis.
+    $root = empty($leaves) ? merkleEmptyRoot() : merkleRoot($leaves);
 
     $record = [
         'epoch' => $epoch,
@@ -321,10 +329,20 @@ function epochClose($epoch)
         'size' => count($leaves),
         'root' => $root,
         'leaves' => $leaves,
+        'empty' => empty($leaves),
         'closed_at' => rfc3339(),
         'timestamp' => tsaStamp(merkleRawFromHex($root)),
         'anchor' => anchorBackend()->anchor($epoch, $root),
     ];
+
+    // La raíz se publica además en el log de transparencia, que es un rol
+    // aparte: así el anclaje no queda solo en manos del nodo que lo produce
+    // (§12, y es la mitigación de A4 que el paso 5 todavía no tenía).
+    $record['transparency'] = logAppend('epoch_root', [
+        'epoch' => $epoch,
+        'root' => $root,
+        'size' => count($leaves),
+    ]);
 
     $record['checkpoint'] = journalCheckpoint('srv');
 
@@ -357,10 +375,33 @@ function epochClosePending($now = null)
         return $closed;
     }
 
-    foreach ((array) glob(EPOCH_DIR . '/*.leaves') as $path) {
-        $epoch = (int) basename((string) $path, '.leaves');
+    $from = epochNextToClose($current);
 
-        if ($epoch >= $current || epochIsClosed($epoch)) {
+    if ($from === null) {
+        return $closed;
+    }
+
+    if ($current - $from > EPOCH_CATCHUP_MAX) {
+        // Demasiadas épocas pendientes: el servicio ha estado parado. En lugar
+        // de fabricar miles de anclajes vacíos con fecha de hoy —que sería
+        // escribir un pasado que no ocurrió—, el hueco se declara y se firma.
+        $gapTo = $current - EPOCH_CATCHUP_MAX - 1;
+
+        logAppend('epoch_gap', [
+            'from' => $from,
+            'to' => $gapTo,
+            'epochs' => $gapTo - $from + 1,
+            'reason' => 'El servicio no estuvo operativo en ese intervalo, así que no hay nada que '
+                . 'anclar. El hueco se declara aquí para que no se confunda con una omisión.',
+        ]);
+
+        $from = $gapTo + 1;
+    }
+
+    // Todas las épocas vencidas, con hojas o sin ellas: la continuidad de la
+    // numeración es parte de la prueba de no ocurrencia (§19.5).
+    for ($epoch = $from; $epoch < $current; $epoch++) {
+        if (epochIsClosed($epoch)) {
             continue;
         }
 
@@ -374,6 +415,38 @@ function epochClosePending($now = null)
     ksort($closed);
 
     return $closed;
+}
+
+/**
+ * Primera época que toca cerrar: la siguiente a la última anclada. Si no se ha
+ * anclado ninguna todavía, la más antigua que tenga recibos; y si tampoco hay
+ * recibos, no hay nada que cerrar.
+ *
+ * @param int $current Época en curso
+ *
+ * @return int|null
+ */
+function epochNextToClose($current)
+{
+    $lastClosed = null;
+
+    foreach ((array) glob(EPOCH_DIR . '/*.json') as $path) {
+        $epoch = (int) basename((string) $path, '.json');
+        $lastClosed = $lastClosed === null ? $epoch : max($lastClosed, $epoch);
+    }
+
+    if ($lastClosed !== null) {
+        return $lastClosed + 1 >= $current ? null : $lastClosed + 1;
+    }
+
+    $oldest = null;
+
+    foreach ((array) glob(EPOCH_DIR . '/*.leaves') as $path) {
+        $epoch = (int) basename((string) $path, '.leaves');
+        $oldest = $oldest === null ? $epoch : min($oldest, $epoch);
+    }
+
+    return ($oldest === null || $oldest >= $current) ? null : $oldest;
 }
 
 /**
