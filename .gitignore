@@ -52,3 +52,7 @@ journal/
 
 # Salidas de la prueba de extremo a extremo
 .e2e/
+
+# Log de transparencia y memoria del auditor: estado local, nunca al repositorio
+transparency/
+auditor/

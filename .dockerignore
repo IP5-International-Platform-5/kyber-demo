@@ -11,6 +11,8 @@ api_server/keys
 keys
 identities
 journal
+transparency
+auditor
 .e2e
 .vscode
 .idea
