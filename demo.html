@@ -632,7 +632,10 @@
                         resultElement.innerHTML = `Message encrypted on the client:<br>
                         <br>Encrypted data: ${data.encrypted_data}
                         <br>IV: ${data.iv}
-                        <br>Tag: ${data.tag}`;
+                        <br>Tag: ${data.tag}
+                        <br>
+                        <br>Signed receipt_core #${data.seq}: ${data.rc_hash}
+                        <br>The signature travels <em>inside</em> the ciphertext (QSLP/1 &sect;11.1).`;
 
                         resultElement.classList.add('success');
 
@@ -691,8 +694,43 @@
                     // If we got plaintext back, show it
                     else if (data.message) {
                         resultElement.innerHTML = `Message decrypted on the server:<br>
-                        <br>Plaintext: ${data.message}`;
+                        <br>Plaintext: ${data.message}
+                        <br>
+                        <br>Sender signature verified before delivery: yes
+                        <br>receipt_core hash: ${data.rc_hash}
+                        <br>Merkle epoch: ${data.epoch}`;
                         resultElement.classList.add('success');
+
+                        // The signed acknowledgement is only worth something
+                        // once the sender has checked it and filed it: that is
+                        // the half that proves delivery (QSLP/1 §11.2).
+                        if (data.receipt) {
+                            try {
+                                const filed = await fetch(getAppApiUrl('store_receipt'), getFetchOptions({
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json'
+                                    },
+                                    body: JSON.stringify({
+                                        sid: sid,
+                                        rc_hash: data.rc_hash,
+                                        receipt: data.receipt
+                                    })
+                                }));
+                                const receiptData = await filed.json();
+
+                                console.log('store_receipt response:', receiptData);
+
+                                resultElement.innerHTML += receiptData.receipt_verified
+                                    ? `<br>
+                                       <br>Signed receipt from ${receiptData.by}: verified and filed
+                                       <br>Journal entry #${receiptData.journal_n}`
+                                    : `<br><br>Signed receipt REJECTED: ${receiptData.error || 'unknown reason'}`;
+                            } catch (error) {
+                                resultElement.innerHTML += `<br><br>Could not file the receipt: ${error.message}`;
+                                console.error('store_receipt error:', error);
+                            }
+                        }
                     }
                     // Unexpected response
                     else {

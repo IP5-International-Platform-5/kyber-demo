@@ -46,3 +46,9 @@ sess_*
 
 # Identidades de firma: nunca al repositorio
 identities/
+
+# Diario, recibos y raíces de época: estado local, nunca al repositorio
+journal/
+
+# Salidas de la prueba de extremo a extremo
+.e2e/

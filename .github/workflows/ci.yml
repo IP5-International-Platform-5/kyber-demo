@@ -37,8 +37,16 @@ jobs:
 
       - name: Comprobar sintaxis
         run: |
-          find api_server app libs public -name '*.php' -print0 \
+          find api_server app libs public scripts -name '*.php' -print0 \
             | xargs -0 -n1 -P4 php -l
+
+      # Sin la extensión oqsphp aquí no se pueden comprobar las firmas, y esas
+      # quedan omitidas. Lo que sí se comprueba es de lo que depende todo lo
+      # demás: canonicalización, árbol de Merkle, ventana anti-replay y diario
+      # encadenado. Corre en las dos versiones de PHP a propósito: así se nota
+      # lo que 8.4 deprecia y 8.1 todavía acepta.
+      - name: Comprobaciones de las piezas del no repudio
+        run: php scripts/prueba-unidades.php
 
   calidad-php:
     name: Estilo y análisis estático (PHP)

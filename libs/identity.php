@@ -147,3 +147,35 @@ function confirmationTag($sharedSecret, $th2) {
 
     return bin2hex(substr(hash_hmac('sha3-256', $th2, $kConf, true), 0, 16));
 }
+
+/**
+ * Firma un mensaje bajo una etiqueta de dominio explícita.
+ *
+ * Cada firma que hace este nodo se compromete con *para qué* es: un transcript
+ * de handshake, un receipt_core, un acuse de recibo, un checkpoint del diario.
+ * Sin esa etiqueta, la misma clave firma cuatro clases de afirmación sobre
+ * bytes que el atacante influye, y una firma tomada de un contexto se puede
+ * reenviar como si fuera de otro. La etiqueta es barata; la confusión entre
+ * protocolos no lo es.
+ *
+ * @param string $privateKey Clave privada ML-DSA cruda
+ * @param string $domain Etiqueta de contexto, p. ej. "QSLP1-demo RC"
+ * @param string $message Bytes con los que se compromete
+ * @return string Firma cruda
+ */
+function signDomain($privateKey, $domain, $message)
+{
+    return signTranscript($privateKey, hash('sha3-256', $domain . $message, true));
+}
+
+/**
+ * @param string $publicKey Clave pública ML-DSA cruda
+ * @param string $domain Etiqueta de contexto bajo la que se tuvo que firmar
+ * @param string $message Bytes que la firma tiene que cubrir
+ * @param string $signature Firma cruda
+ * @return bool
+ */
+function verifyDomain($publicKey, $domain, $message, $signature)
+{
+    return verifyTranscript($publicKey, hash('sha3-256', $domain . $message, true), $signature);
+}

@@ -10,6 +10,9 @@ parameters:
         - app
         - libs
         - public
+        # El verificador de evidencia y las comprobaciones del no repudio viven
+        # aquí, y son código tan nuestro como el resto.
+        - scripts
 
     # El sufijo (?) marca la ruta como opcional: dist/ y node_modules/ solo
     # existen tras compilar, y liboqs-php está vacío si no se inicializó el

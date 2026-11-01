@@ -22,16 +22,18 @@
         }
     },
     "scripts": {
-        "sintaxis": "find api_server app libs public -name '*.php' -print0 | xargs -0 -n1 -P4 php -l > /dev/null",
+        "sintaxis": "find api_server app libs public scripts -name '*.php' -print0 | xargs -0 -n1 -P4 php -l > /dev/null",
         "estilo": "php-cs-fixer check --diff",
         "estilo:aplicar": "php-cs-fixer fix",
         "analisis": "phpstan analyse --memory-limit=512M",
         "analisis:baseline": "phpstan analyse --generate-baseline",
         "verificar": [
             "@sintaxis",
-            "@estilo",
-            "@analisis"
-        ]
+            "@pruebas",
+            "@analisis",
+            "@estilo"
+        ],
+        "pruebas": "php scripts/prueba-unidades.php"
     },
     "scripts-descriptions": {
         "sintaxis": "Comprueba errores de sintaxis en todos los ficheros PHP.",

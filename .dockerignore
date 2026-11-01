@@ -9,5 +9,8 @@ logs
 app/keys
 api_server/keys
 keys
+identities
+journal
+.e2e
 .vscode
 .idea

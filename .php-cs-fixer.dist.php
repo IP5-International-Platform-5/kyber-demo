@@ -25,6 +25,8 @@ $finder = PhpCsFixer\Finder::create()
         __DIR__ . '/app',
         __DIR__ . '/libs',
         __DIR__ . '/public',
+        // El verificador de evidencia y las comprobaciones del no repudio.
+        __DIR__ . '/scripts',
     ])
     ->append([__FILE__])
     // liboqs-php es un submódulo de terceros; el resto son dependencias y stubs.
@@ -64,7 +66,15 @@ return (new PhpCsFixer\Config())
         'no_superfluous_elseif' => true,
         'no_useless_else' => true,
         'no_useless_return' => true,
-        'simplified_null_return' => true,
+
+        // DESACTIVADA a propósito: convierte `return null;` en `return;`, y
+        // entonces PHPStan (nivel 5) protesta en toda función cuyo PHPDoc diga
+        // `@return array|null`, porque un `return;` vacío no es un null
+        // explícito. Con las dos reglas activas, `composer estilo:aplicar`
+        // rompe `composer analisis`: el análisis bloquea la CI y el estilo no,
+        // así que manda el análisis. Además, en una función que devuelve "esto
+        // o nada", escribir el null es decir lo que pasa.
+        'simplified_null_return' => false,
         'blank_line_before_statement' => [
             'statements' => ['return', 'throw', 'try'],
         ],
