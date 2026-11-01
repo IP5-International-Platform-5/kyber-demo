@@ -20,6 +20,7 @@ require_once __DIR__ . '/canonical.php';
 require_once __DIR__ . '/journal.php';
 require_once __DIR__ . '/epoch.php';
 require_once __DIR__ . '/receipt.php';
+require_once __DIR__ . '/transparency.php';
 
 /**
  * @param string $rcHashHex Hash del receipt_core que se reclama
@@ -96,6 +97,23 @@ function buildEvidencePackage($rcHashHex, $payload = null)
         'journal_proof' => $checkpoint === null
             ? null
             : journalInclusionProof('srv', (int) $record['journal_n'], (int) $checkpoint['n']),
+        // Lo que el paso 6 añade: la raíz de la época no solo está anclada en
+        // el diario del propio nodo, sino publicada en un log con identidad
+        // distinta, y el paquete trae con qué comprobarlo sin preguntar a
+        // nadie (§12).
+        'transparency' => $epochRecord === null ? null : ($epochRecord['transparency'] ?? null),
+        'log_checkpoint' => logLastCheckpoint(),
+        // Ata la raíz contra la que se hizo la prueba de inclusión con el
+        // último checkpoint firmado del log: sin esto, la inclusión demuestra
+        // que la época consta en *alguna* vista del log, no en la vigente.
+        'log_consistency' => evidenceLogConsistency($epochRecord),
+        'log_identity' => evidenceLogIdentity(),
+        // Y la otra mitad de la §19.5: que no consta ningún acto de autoridad
+        // contra ninguno de los dos extremos. Es la prueba de no ocurrencia.
+        'authority_acts' => [
+            'sender' => actsProofFor((string) $core['from']),
+            'receiver' => actsProofFor((string) $core['to']),
+        ],
         'crypto_provenance' => cryptoProvenance(),
         'exported_at' => rfc3339(),
     ];
@@ -106,6 +124,51 @@ function buildEvidencePackage($rcHashHex, $payload = null)
     }
 
     return $package;
+}
+
+/**
+ * Prueba de consistencia entre el árbol que usó la prueba de inclusión de la
+ * época y el tamaño del último checkpoint.
+ *
+ * @param array|null $epochRecord
+ *
+ * @return array<string, mixed>|null
+ */
+function evidenceLogConsistency($epochRecord)
+{
+    if (!is_array($epochRecord) || !isset($epochRecord['transparency']['inclusion']['tree_size'])) {
+        return null;
+    }
+
+    return logConsistencyProof((int) $epochRecord['transparency']['inclusion']['tree_size']);
+}
+
+/**
+ * Identidad pública del log, para que el paquete se pueda verificar sin pedirle
+ * nada a nadie.
+ *
+ * Va acompañada de su advertencia: una clave que viaja dentro del paquete que
+ * se está verificando no demuestra de quién es. Hay que compararla con la que
+ * se conozca por otra vía, y para eso el verificador acepta --log-id.
+ *
+ * @return array<string, mixed>|null
+ */
+function evidenceLogIdentity()
+{
+    $publicKey = logPublicKey();
+
+    if ($publicKey === null) {
+        return null;
+    }
+
+    return [
+        'log_id' => nodeId($publicKey),
+        'sig_alg' => SIG_ALG,
+        'public_key' => b64uEncode($publicKey),
+        'fingerprint' => identityFingerprint($publicKey),
+        'warning' => 'Esta clave viaja dentro del propio paquete: compárala con la del log que '
+            . 'conozcas por otra vía antes de darle valor.',
+    ];
 }
 
 /**

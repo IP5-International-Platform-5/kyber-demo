@@ -3,7 +3,7 @@
 /**
  * Verificador de referencia de paquetes de evidencia QSLP/1 (§19.4).
  *
- *   php scripts/verificar-evidencia.php paquete.json [--emisor=ip5:…] [--receptor=ip5:…]
+ *   php scripts/verificar-evidencia.php paquete.json [--emisor=ip5:…] [--receptor=ip5:…] [--log-id=ip5:…]
  *
  * Una evidencia que solo sabe verificar quien opera el servidor auditado no es
  * evidencia: es una afirmación con formato JSON. Por eso este programa
@@ -30,14 +30,17 @@ $arguments = array_slice(isset($_SERVER['argv']) ? (array) $_SERVER['argv'] : []
 $file = null;
 $expectedSender = null;
 $expectedReceiver = null;
+$expectedLog = null;
 
 foreach ($arguments as $argument) {
     if (strpos($argument, '--emisor=') === 0) {
         $expectedSender = substr($argument, 9);
     } elseif (strpos($argument, '--receptor=') === 0) {
         $expectedReceiver = substr($argument, 11);
+    } elseif (strpos($argument, '--log-id=') === 0) {
+        $expectedLog = substr($argument, 9);
     } elseif ($argument === '--ayuda' || $argument === '-h') {
-        fwrite(STDOUT, "Uso: php verificar-evidencia.php paquete.json [--emisor=ip5:…] [--receptor=ip5:…]\n");
+        fwrite(STDOUT, "Uso: php verificar-evidencia.php paquete.json [--emisor=ip5:…] [--receptor=ip5:…] [--log-id=ip5:…]\n");
         exit(0);
     } else {
         $file = $argument;
@@ -46,7 +49,7 @@ foreach ($arguments as $argument) {
 
 if ($file === null || !is_file($file)) {
     fwrite(STDERR, "No se puede leer el paquete de evidencia. Uso:\n"
-        . "  php verificar-evidencia.php paquete.json [--emisor=ip5:…] [--receptor=ip5:…]\n");
+        . "  php verificar-evidencia.php paquete.json [--emisor=ip5:…] [--receptor=ip5:…] [--log-id=ip5:…]\n");
     exit(2);
 }
 
@@ -261,6 +264,264 @@ function vVerifySignature($publicKey, $domain, $message, $signatureB64u)
     } catch (Throwable $e) {
         return false;
     }
+}
+
+/**
+ * Punto de corte del RFC 6962: mayor potencia de dos menor que $n.
+ *
+ * @param int $n
+ *
+ * @return int
+ */
+function vMerkleSplit($n)
+{
+    $k = 1;
+
+    while ($k * 2 < $n) {
+        $k *= 2;
+    }
+
+    return $k;
+}
+
+/**
+ * @param string[] $proof
+ * @param int $cursor
+ *
+ * @return string
+ */
+function vTakeProofHash(array $proof, &$cursor)
+{
+    if (!isset($proof[$cursor])) {
+        throw new RuntimeException('La prueba de consistencia se queda corta');
+    }
+
+    $raw = vRawFromHex(strtolower((string) $proof[$cursor]));
+    $cursor++;
+
+    return $raw;
+}
+
+/**
+ * Recompone a la vez la raíz antigua y la nueva, consumiendo la prueba en el
+ * orden en que se generó.
+ *
+ * @param int $m
+ * @param int $n
+ * @param string[] $proof
+ * @param int $cursor
+ * @param bool $known
+ * @param string $rootMRaw
+ *
+ * @return array{0: string, 1: string}
+ */
+function vConsistencyFold($m, $n, array $proof, &$cursor, $known, $rootMRaw)
+{
+    if ($m === $n) {
+        if ($known) {
+            return [$rootMRaw, $rootMRaw];
+        }
+
+        $hash = vTakeProofHash($proof, $cursor);
+
+        return [$hash, $hash];
+    }
+
+    $k = vMerkleSplit($n);
+
+    if ($m <= $k) {
+        $left = vConsistencyFold($m, $k, $proof, $cursor, $known, $rootMRaw);
+        $right = vTakeProofHash($proof, $cursor);
+
+        return [$left[0], vNodeHash($left[1], $right)];
+    }
+
+    $right = vConsistencyFold($m - $k, $n - $k, $proof, $cursor, false, $rootMRaw);
+    $left = vTakeProofHash($proof, $cursor);
+
+    return [vNodeHash($left, $right[0]), vNodeHash($left, $right[1])];
+}
+
+/**
+ * Comprueba que el árbol de $m hojas es prefijo del de $n (RFC 6962 §2.1.2).
+ *
+ * Es lo que distingue «el log creció» de «el log cambió lo que ya había
+ * firmado». Sin esta comprobación, dos checkpoints distintos del mismo log no
+ * se pueden interpretar: lo normal es que difieran.
+ *
+ * @param int $m
+ * @param int $n
+ * @param string[] $proof
+ * @param string $rootMHex
+ * @param string $rootNHex
+ *
+ * @return bool
+ */
+function vConsistencyVerify($m, $n, array $proof, $rootMHex, $rootNHex)
+{
+    $m = (int) $m;
+    $n = (int) $n;
+
+    if ($m < 1 || $n < $m) {
+        return false;
+    }
+
+    if ($m === $n) {
+        return $proof === [] && hash_equals(strtolower($rootMHex), strtolower($rootNHex));
+    }
+
+    try {
+        $cursor = 0;
+        $roots = vConsistencyFold($m, $n, array_values($proof), $cursor, true, vRawFromHex(strtolower($rootMHex)));
+
+        return $cursor === count($proof)
+            && hash_equals(strtolower($rootMHex), bin2hex($roots[0]))
+            && hash_equals(strtolower($rootNHex), bin2hex($roots[1]));
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
+/**
+ * Hash de una hoja del log de transparencia. Etiqueta propia, para que no se
+ * pueda confundir con una entrada de diario ni con un nodo del árbol.
+ *
+ * @param array $leaf
+ *
+ * @return string
+ */
+function vLogLeafHash(array $leaf)
+{
+    return hash('sha3-256', 'QSLP1-demo TL' . vCanonical($leaf));
+}
+
+/**
+ * Hashes de los subárboles vacíos del árbol disperso, por altura. Quien
+ * verifica los calcula por su cuenta, y por eso una prueba solo necesita
+ * traer los hermanos que no están vacíos.
+ *
+ * @return string[]
+ */
+function vSparseDefaults()
+{
+    static $defaults = null;
+
+    if ($defaults === null) {
+        $defaults = [hash('sha3-256', "\x10" . 'QSLP1-demo SMT empty', true)];
+
+        for ($height = 1; $height <= 256; $height++) {
+            $defaults[$height] = vSparseNode($defaults[$height - 1], $defaults[$height - 1]);
+        }
+    }
+
+    return $defaults;
+}
+
+/**
+ * @param string $left
+ * @param string $right
+ *
+ * @return string
+ */
+function vSparseNode($left, $right)
+{
+    return hash('sha3-256', "\x11" . $left . $right, true);
+}
+
+/**
+ * @param string $keyHex
+ * @param string $valueHex
+ *
+ * @return string
+ */
+function vSparseLeaf($keyHex, $valueHex)
+{
+    return hash('sha3-256', "\x12" . vRawFromHex($keyHex) . vRawFromHex($valueHex), true);
+}
+
+/**
+ * @param string $keyHex
+ * @param int $index
+ *
+ * @return int
+ */
+function vSparseBit($keyHex, $index)
+{
+    return (ord(vRawFromHex($keyHex)[intdiv($index, 8)]) >> (7 - ($index % 8))) & 1;
+}
+
+/**
+ * Pliega una prueba del árbol disperso. Sirve igual para demostrar que algo
+ * está y que algo NO está: lo único que cambia es si la hoja lleva valor, y esa
+ * simetría es lo que permite demostrar una ausencia (§19.5).
+ *
+ * @param array $proof
+ * @param string $rootHex
+ *
+ * @return bool
+ */
+function vSparseVerify($proof, $rootHex)
+{
+    if (!is_array($proof) || !isset($proof['key'], $proof['bitmap'], $proof['siblings'])) {
+        return false;
+    }
+
+    try {
+        $defaults = vSparseDefaults();
+        $keyHex = strtolower((string) $proof['key']);
+        $raw = vRawFromHex(strtolower((string) $proof['bitmap']));
+        $bits = '';
+
+        for ($i = 0; $i < strlen($raw); $i++) {
+            $bits .= str_pad(decbin(ord($raw[$i])), 8, '0', STR_PAD_LEFT);
+        }
+
+        $siblings = array_values((array) $proof['siblings']);
+        $value = $proof['value'] ?? null;
+        $current = ($value === null) ? $defaults[0] : vSparseLeaf($keyHex, (string) $value);
+        $next = count($siblings) - 1;
+
+        for ($depth = 255; $depth >= 0; $depth--) {
+            if ($bits[$depth] === '1') {
+                if ($next < 0) {
+                    return false;
+                }
+                $sibling = vRawFromHex(strtolower((string) $siblings[$next]));
+                $next--;
+            } else {
+                $sibling = $defaults[255 - $depth];
+            }
+
+            $current = vSparseBit($keyHex, $depth) === 0
+                ? vSparseNode($current, $sibling)
+                : vSparseNode($sibling, $current);
+        }
+
+        // Con hermanos de sobra no es una prueba: es una prueba y algo más.
+        return $next === -1 && hash_equals(strtolower((string) $rootHex), bin2hex($current));
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
+/**
+ * Valor que representa a un sujeto en el árbol de actos: el hash de la lista de
+ * hashes de sus actos. Ocultar uno cambia el valor, así que enseñar una lista
+ * recortada no cuadra con la raíz firmada.
+ *
+ * @param array<int, array> $acts
+ *
+ * @return string
+ */
+function vActsValue(array $acts)
+{
+    $hashes = [];
+
+    foreach ($acts as $act) {
+        $hashes[] = vLogLeafHash($act);
+    }
+
+    return hash('sha3-256', 'QSLP1-demo acts' . vCanonical($hashes));
 }
 
 // ---------------------------------------------------------------------------
@@ -641,7 +902,211 @@ if (is_array($anchor) && ($anchor['chain'] ?? '') === 'local') {
     check('Anclaje de la raíz en una cadena (§11.4)', false, 'Ausente.');
 }
 
-// --- 10. Revocación y certificados ------------------------------------------
+// --- 10. El log de transparencia (§12) ------------------------------------
+
+$logIdentity = field($package, 'log_identity');
+$logKey = is_array($logIdentity) ? vB64uDecode((string) ($logIdentity['public_key'] ?? '')) : false;
+$logCheckpoint = field($package, 'log_checkpoint');
+
+if ($logKey === false) {
+    check(
+        'El paquete trae la identidad del log de transparencia (§12)',
+        'ausente',
+        'Sin ella, lo único que respalda la evidencia es el diario del propio nodo auditado.',
+    );
+} else {
+    if ($expectedLog !== null) {
+        check(
+            'El log es el indicado en la línea de órdenes',
+            hash_equals($expectedLog, (string) ($logIdentity['log_id'] ?? '')),
+            'esperado ' . $expectedLog . ', encontrado ' . (string) ($logIdentity['log_id'] ?? ''),
+        );
+    } else {
+        check(
+            'El log es el que el paquete dice que es',
+            null,
+            'No comprobado: la clave del log viaja dentro del propio paquete. Pásala con '
+            . '--log-id para atarla a un log que conozcas por otra vía.',
+        );
+    }
+
+    check(
+        'El log tiene identidad distinta de la del nodo central',
+        !hash_equals((string) ($logIdentity['log_id'] ?? ''), (string) $core['to']),
+        'log ' . (string) ($logIdentity['log_id'] ?? '') . ', nodo receptor ' . (string) $core['to'],
+    );
+
+    if (!is_array($logCheckpoint)) {
+        check('Checkpoint firmado del log (§12.3)', 'ausente', 'El paquete no lo trae.');
+    } else {
+        $logCheckpointBody = [
+            'acts_root' => strtolower((string) ($logCheckpoint['acts_root'] ?? '')),
+            'root' => strtolower((string) ($logCheckpoint['root'] ?? '')),
+            'seq' => (int) ($logCheckpoint['seq'] ?? 0),
+            'tree_size' => (int) ($logCheckpoint['tree_size'] ?? 0),
+            'ts' => (string) ($logCheckpoint['ts'] ?? ''),
+        ];
+        $logCheckpointResult = vVerifySignature(
+            $logKey,
+            'QSLP1-demo TLCP',
+            vCanonical($logCheckpointBody),
+            (string) ($logCheckpoint['signature'] ?? ''),
+        );
+
+        check(
+            'El checkpoint del log está firmado por el log',
+            $logCheckpointResult,
+            $logCheckpointResult === null
+                ? 'No comprobado: falta la extensión oqsphp'
+                : 'checkpoint nº ' . $logCheckpointBody['seq'] . ', con ' . $logCheckpointBody['tree_size']
+                    . ' entradas contadas y firmadas',
+        );
+    }
+
+    $transparency = field($package, 'transparency');
+
+    if (!is_array($transparency) || !isset($transparency['leaf'], $transparency['inclusion'])) {
+        check(
+            'La raíz de la época consta en el log (§12)',
+            'ausente',
+            'El paquete no trae la prueba de publicación: el anclaje se queda en el diario del '
+            . 'nodo, que es a la vez el auditado.',
+        );
+    } else {
+        $logLeaf = (array) $transparency['leaf'];
+        $inclusion = (array) $transparency['inclusion'];
+        $inclusionBody = [
+            'leaf_hash' => strtolower((string) ($inclusion['leaf_hash'] ?? '')),
+            'root' => strtolower((string) ($inclusion['root'] ?? '')),
+            'seq' => (int) ($inclusion['seq'] ?? 0),
+            'tree_size' => (int) ($inclusion['tree_size'] ?? 0),
+        ];
+
+        $inclusionSigned = vVerifySignature(
+            $logKey,
+            'QSLP1-demo TLSCT',
+            vCanonical($inclusionBody),
+            (string) ($inclusion['signature'] ?? ''),
+        );
+
+        check(
+            'La prueba de publicación está firmada por el log',
+            $inclusionSigned,
+            $inclusionSigned === null ? 'No comprobado: falta la extensión oqsphp'
+                : 'entrada nº ' . $inclusionBody['seq'] . ' de ' . $inclusionBody['tree_size'],
+        );
+
+        check(
+            'El hash de la prueba es el de la hoja aportada',
+            hash_equals(vLogLeafHash($logLeaf), $inclusionBody['leaf_hash']),
+            'hoja de tipo "' . (string) ($logLeaf['type'] ?? '?') . '"',
+        );
+
+        try {
+            $logFolded = vFoldProof($inclusionBody['leaf_hash'], (array) ($inclusion['path'] ?? []));
+            check(
+                'La hoja está incluida en el árbol del log',
+                hash_equals($inclusionBody['root'], $logFolded),
+                count((array) ($inclusion['path'] ?? [])) . ' hashes de camino',
+            );
+        } catch (Throwable $e) {
+            check('La hoja está incluida en el árbol del log', false, $e->getMessage());
+        }
+
+        $publishedRoot = strtolower((string) ($logLeaf['body']['root'] ?? ''));
+        $anchoredRoot = strtolower((string) (field($package, 'merkle_proof.root') ?: ''));
+
+        check(
+            'La raíz publicada en el log es la misma que la anclada en la época',
+            $publishedRoot !== '' && hash_equals($publishedRoot, $anchoredRoot),
+            'publicada ' . substr($publishedRoot, 0, 16) . '…, anclada ' . substr($anchoredRoot, 0, 16) . '…',
+        );
+
+        $logConsistency = field($package, 'log_consistency');
+
+        if (!is_array($logConsistency) || !isset($logConsistency['proof'])) {
+            check(
+                'Esa publicación sigue estando en la vista actual del log (§12.3)',
+                'ausente',
+                'Sin prueba de consistencia, la publicación consta en alguna vista del log, no '
+                . 'necesariamente en la que el checkpoint firma hoy.',
+            );
+        } else {
+            $consistent = vConsistencyVerify(
+                (int) $logConsistency['from_size'],
+                (int) $logConsistency['to_size'],
+                (array) $logConsistency['proof'],
+                (string) $logConsistency['from_root'],
+                (string) $logConsistency['to_root'],
+            );
+
+            check(
+                'Esa publicación sigue estando en la vista actual del log (§12.3)',
+                $consistent,
+                $consistent
+                    ? 'el árbol de ' . (int) $logConsistency['from_size'] . ' entradas es prefijo del de '
+                        . (int) $logConsistency['to_size'] . ', con ' . count((array) $logConsistency['proof'])
+                        . ' hashes'
+                    : 'la prueba de consistencia no cuadra: el log reescribió su historia',
+            );
+
+            check(
+                'La raíz consistente es la que el checkpoint firma',
+                is_array($logCheckpoint)
+                && hash_equals(strtolower((string) $logConsistency['to_root']), strtolower((string) $logCheckpoint['root'])),
+                'si no coincidieran, la cadena entre la hoja y la firma se rompería ahí',
+            );
+        }
+    }
+
+    // --- 11. Actos de autoridad y no ocurrencia (§12.2, §19.5) ------------
+
+    $acts = field($package, 'authority_acts');
+    $actsRoot = is_array($logCheckpoint) ? strtolower((string) ($logCheckpoint['acts_root'] ?? '')) : '';
+
+    foreach (['sender' => 'emisor', 'receiver' => 'receptor'] as $role => $label) {
+        $entry = is_array($acts) ? ($acts[$role] ?? null) : null;
+
+        if (!is_array($entry) || !isset($entry['proof'])) {
+            check(
+                'Actos de autoridad contra el ' . $label . ' (§12.2)',
+                'ausente',
+                'El paquete no trae prueba de si existen o no.',
+            );
+
+            continue;
+        }
+
+        $shown = (array) ($entry['acts'] ?? []);
+        $value = $entry['proof']['value'] ?? null;
+        $valueMatches = empty($shown)
+            ? $value === null
+            : (is_string($value) && hash_equals(vActsValue($shown), strtolower($value)));
+
+        $folded = vSparseVerify($entry['proof'], $actsRoot);
+
+        if (empty($shown)) {
+            check(
+                'No consta NINGÚN acto de autoridad contra el ' . $label . ' (§19.5)',
+                $valueMatches && $folded,
+                $valueMatches && $folded
+                    ? 'prueba de no inclusión contra la raíz de actos que el log firma: esto no es '
+                        . 'un «no lo sé», es un «no existe»'
+                    : 'la prueba de no inclusión no cuadra con la raíz firmada',
+            );
+        } else {
+            check(
+                'Los actos contra el ' . $label . ' son exactamente ' . count($shown) . ' (§12.2)',
+                $valueMatches && $folded,
+                $valueMatches && $folded
+                    ? 'y no hay más en esta vista del log: la lista completa cuadra con la raíz firmada'
+                    : 'la lista que se enseña no cuadra con la raíz firmada: falta o sobra algún acto',
+            );
+        }
+    }
+}
+
+// --- 12. Revocación y certificados ------------------------------------------
 
 check(
     'Estado de revocación a la fecha del hecho (§19.3)',
